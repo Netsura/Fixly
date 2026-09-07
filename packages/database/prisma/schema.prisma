@@ -1,0 +1,304 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  CUSTOMER
+  PROVIDER
+  ADMIN
+}
+
+enum RequestStatus {
+  DRAFT
+  PUBLISHED
+  OFFER_RECEIVED
+  PROVIDER_SELECTED
+  PAYMENT_PENDING
+  PAID
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  REVIEWED
+  CANCELLED
+}
+
+enum OfferStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  WITHDRAWN
+}
+
+enum BookingStatus {
+  PAYMENT_PENDING
+  PAID
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  REFUNDED
+}
+
+model User {
+  id                String        @id @default(uuid()) @db.Uuid
+  email             String        @unique
+  passwordHash      String        @map("password_hash")
+  role              UserRole      @default(CUSTOMER)
+  emailVerifiedAt   DateTime?     @map("email_verified_at")
+  suspendedAt       DateTime?     @map("suspended_at")
+  createdAt         DateTime      @default(now()) @map("created_at")
+  updatedAt         DateTime      @updatedAt @map("updated_at")
+  profile           Profile?
+  requests          ServiceRequest[] @relation("CustomerRequests")
+  offers            Offer[]       @relation("ProviderOffers")
+  customerBookings  Booking[]     @relation("CustomerBookings")
+  providerBookings  Booking[]     @relation("ProviderBookings")
+  authoredReviews   Review[]      @relation("ReviewAuthors")
+  receivedReviews   Review[]      @relation("ReviewSubjects")
+  sentMessages      Message[]
+  notifications     Notification[]
+  reports           Report[]       @relation("Reporters")
+  auditLogs         AuditLog[]
+  participants      ConversationParticipant[]
+  sessions          AuthSession[]
+}
+
+model AuthSession {
+  id               String    @id @default(uuid()) @db.Uuid
+  userId           String    @map("user_id") @db.Uuid
+  refreshTokenHash String    @map("refresh_token_hash")
+  expiresAt        DateTime  @map("expires_at")
+  revokedAt        DateTime? @map("revoked_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, revokedAt, expiresAt])
+}
+
+model Profile {
+  userId          String   @id @map("user_id") @db.Uuid
+  displayName     String   @map("display_name")
+  phone           String?
+  bio             String?
+  ratingAverage   Decimal  @default(0) @map("rating_average") @db.Decimal(3, 2)
+  ratingCount     Int      @default(0) @map("rating_count")
+  serviceArea     Json?    @map("service_area")
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model ServiceCategory {
+  id       String    @id @default(uuid()) @db.Uuid
+  slug     String    @unique
+  name     String
+  services Service[]
+}
+
+model Service {
+  id          String          @id @default(uuid()) @db.Uuid
+  categoryId  String          @map("category_id") @db.Uuid
+  slug        String          @unique
+  name        String
+  active      Boolean         @default(true)
+  category    ServiceCategory @relation(fields: [categoryId], references: [id])
+  requests    ServiceRequest[]
+  createdAt   DateTime        @default(now()) @map("created_at")
+  updatedAt   DateTime        @updatedAt @map("updated_at")
+
+  @@index([categoryId, active])
+}
+
+model ServiceRequest {
+  id              String              @id @default(uuid()) @db.Uuid
+  customerId      String              @map("customer_id") @db.Uuid
+  serviceId       String              @map("service_id") @db.Uuid
+  status          RequestStatus       @default(DRAFT)
+  title           String
+  description     String
+  locationHash    String              @map("location_hash")
+  preferredStart  DateTime            @map("preferred_start")
+  preferredEnd    DateTime            @map("preferred_end")
+  budgetMinCents  Int?                @map("budget_min_cents")
+  budgetMaxCents  Int?                @map("budget_max_cents")
+  createdAt       DateTime            @default(now()) @map("created_at")
+  updatedAt       DateTime            @updatedAt @map("updated_at")
+  customer        User                @relation("CustomerRequests", fields: [customerId], references: [id])
+  service         Service             @relation(fields: [serviceId], references: [id])
+  attachments     RequestAttachment[]
+  offers          Offer[]
+  booking         Booking?
+
+  @@index([serviceId, status, createdAt])
+  @@index([customerId, status, createdAt])
+}
+
+model RequestAttachment {
+  id         String         @id @default(uuid()) @db.Uuid
+  requestId  String         @map("request_id") @db.Uuid
+  objectKey  String         @map("object_key")
+  mediaType  String         @map("media_type")
+  sizeBytes  Int            @map("size_bytes")
+  createdAt  DateTime       @default(now()) @map("created_at")
+  request    ServiceRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@index([requestId, createdAt])
+}
+
+model Offer {
+  id           String         @id @default(uuid()) @db.Uuid
+  requestId    String         @map("request_id") @db.Uuid
+  providerId   String         @map("provider_id") @db.Uuid
+  priceCents   Int            @map("price_cents")
+  message      String
+  availableAt  DateTime       @map("available_at")
+  status       OfferStatus    @default(PENDING)
+  createdAt    DateTime       @default(now()) @map("created_at")
+  updatedAt    DateTime       @updatedAt @map("updated_at")
+  request      ServiceRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  provider     User           @relation("ProviderOffers", fields: [providerId], references: [id])
+  booking      Booking?
+
+  @@unique([requestId, providerId])
+  @@index([requestId, status, createdAt])
+  @@index([providerId, status, createdAt])
+}
+
+model Booking {
+  id          String        @id @default(uuid()) @db.Uuid
+  requestId   String        @unique @map("request_id") @db.Uuid
+  offerId     String        @unique @map("offer_id") @db.Uuid
+  customerId  String        @map("customer_id") @db.Uuid
+  providerId  String        @map("provider_id") @db.Uuid
+  status      BookingStatus @default(PAYMENT_PENDING)
+  scheduledAt DateTime?     @map("scheduled_at")
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+  request     ServiceRequest @relation(fields: [requestId], references: [id])
+  offer       Offer         @relation(fields: [offerId], references: [id])
+  customer    User          @relation("CustomerBookings", fields: [customerId], references: [id])
+  provider    User          @relation("ProviderBookings", fields: [providerId], references: [id])
+  payments    Payment[]
+  review      Review?
+  conversation Conversation?
+
+  @@index([providerId, status, scheduledAt])
+  @@index([customerId, status, scheduledAt])
+}
+
+model Payment {
+  id                    String        @id @default(uuid()) @db.Uuid
+  bookingId             String        @map("booking_id") @db.Uuid
+  stripePaymentIntentId String        @unique @map("stripe_payment_intent_id")
+  amountCents            Int           @map("amount_cents")
+  currency               String        @default("usd")
+  status                PaymentStatus @default(PENDING)
+  idempotencyKey        String        @unique @map("idempotency_key")
+  createdAt             DateTime      @default(now()) @map("created_at")
+  updatedAt             DateTime      @updatedAt @map("updated_at")
+  booking               Booking       @relation(fields: [bookingId], references: [id])
+
+  @@index([bookingId, status])
+}
+
+model PaymentWebhookEvent {
+  id          String   @id @default(uuid()) @db.Uuid
+  eventId     String   @unique @map("event_id")
+  eventType   String   @map("event_type")
+  processedAt DateTime @default(now()) @map("processed_at")
+}
+
+model Review {
+  id         String        @id @default(uuid()) @db.Uuid
+  bookingId  String        @unique @map("booking_id") @db.Uuid
+  authorId   String        @map("author_id") @db.Uuid
+  subjectId  String        @map("subject_id") @db.Uuid
+  rating     Int
+  body       String
+  createdAt  DateTime      @default(now()) @map("created_at")
+  booking    Booking       @relation(fields: [bookingId], references: [id])
+  author     User          @relation("ReviewAuthors", fields: [authorId], references: [id])
+  subject    User          @relation("ReviewSubjects", fields: [subjectId], references: [id])
+
+  @@index([subjectId, createdAt])
+}
+
+model Conversation {
+  id           String                     @id @default(uuid()) @db.Uuid
+  bookingId    String?                    @unique @map("booking_id") @db.Uuid
+  createdAt    DateTime                   @default(now()) @map("created_at")
+  booking      Booking?                   @relation(fields: [bookingId], references: [id])
+  participants ConversationParticipant[]
+  messages     Message[]
+}
+
+model ConversationParticipant {
+  conversationId String       @map("conversation_id") @db.Uuid
+  userId         String       @map("user_id") @db.Uuid
+  lastReadAt     DateTime?    @map("last_read_at")
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([conversationId, userId])
+  @@index([userId, lastReadAt])
+}
+
+model Message {
+  id             String       @id @default(uuid()) @db.Uuid
+  conversationId String       @map("conversation_id") @db.Uuid
+  senderId       String       @map("sender_id") @db.Uuid
+  body           String
+  createdAt      DateTime     @default(now()) @map("created_at")
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender         User         @relation(fields: [senderId], references: [id])
+
+  @@index([conversationId, createdAt])
+}
+
+model Notification {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  type      String
+  payload   Json
+  readAt    DateTime? @map("read_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt, createdAt])
+}
+
+model Report {
+  id          String   @id @default(uuid()) @db.Uuid
+  reporterId  String   @map("reporter_id") @db.Uuid
+  targetType  String   @map("target_type")
+  targetId    String   @map("target_id") @db.Uuid
+  reason      String
+  resolvedAt  DateTime? @map("resolved_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+  reporter    User     @relation("Reporters", fields: [reporterId], references: [id])
+
+  @@index([resolvedAt, createdAt])
+}
+
+model AuditLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  actorId    String?  @map("actor_id") @db.Uuid
+  action     String
+  entityType String   @map("entity_type")
+  entityId   String   @map("entity_id") @db.Uuid
+  metadata   Json?
+  createdAt  DateTime @default(now()) @map("created_at")
+  actor      User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([entityType, entityId, createdAt])
+  @@index([actorId, createdAt])
+}
