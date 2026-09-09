@@ -64,14 +64,7 @@ export class ConversationsService {
       return this.createForBooking(userId, booking.id);
     }
 
-    return prisma.conversation.create({
-      data: {
-        participants: {
-          create: [{ userId }, { userId: otherUserId }],
-        },
-      },
-      include: { participants: true },
-    });
+    throw new ForbiddenException('You can only message users you have a booking with');
   }
 
   async createForBooking(userId: string, bookingId: string) {

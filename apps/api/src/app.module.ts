@@ -1,4 +1,5 @@
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
@@ -16,6 +17,8 @@ import { ReviewsModule } from './reviews/reviews.module';
 import { ServicesModule } from './services/services.module';
 import { StorageModule } from './storage/storage.module';
 import { UsersModule } from './users/users.module';
+import { OriginCheckMiddleware } from './common/origin-check.middleware';
+import { RateLimitGuard } from './common/rate-limit.guard';
 
 @Module({
   imports: [
@@ -36,6 +39,13 @@ import { UsersModule } from './users/users.module';
     UsersModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    { provide: APP_GUARD, useClass: RateLimitGuard },
+  ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(OriginCheckMiddleware).forRoutes('*');
+  }
+}

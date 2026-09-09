@@ -28,8 +28,14 @@ export class PaymentsService {
       throw new ConflictException('Booking is not awaiting payment');
     }
 
-    const existing = await prisma.payment.findUnique({ where: { idempotencyKey } });
+    const existing = await prisma.payment.findUnique({
+      where: { idempotencyKey },
+      include: { booking: { select: { customerId: true } } },
+    });
     if (existing) {
+      if (existing.booking.customerId !== customerId) {
+        throw new NotFoundException('Booking not found');
+      }
       return { paymentId: existing.id, clientSecret: await this.getClientSecret(existing.stripePaymentIntentId), status: existing.status };
     }
     if (booking.payments.some((payment) => payment.status === PaymentStatus.SUCCEEDED)) {
@@ -57,7 +63,13 @@ export class PaymentsService {
       return { paymentId: payment.id, clientSecret: paymentIntent.client_secret, status: payment.status };
     } catch (error) {
       if (error instanceof Error && error.message.includes('Unique constraint')) {
-        const payment = await prisma.payment.findUniqueOrThrow({ where: { idempotencyKey } });
+        const payment = await prisma.payment.findUniqueOrThrow({
+          where: { idempotencyKey },
+          include: { booking: { select: { customerId: true } } },
+        });
+        if (payment.booking.customerId !== customerId) {
+          throw new NotFoundException('Booking not found');
+        }
         return { paymentId: payment.id, clientSecret: await this.getClientSecret(payment.stripePaymentIntentId), status: payment.status };
       }
       throw error;

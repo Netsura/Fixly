@@ -1194,3 +1194,116 @@ p {
   .booking-card-head, .notification-row { flex-direction: column; }
   .admin-user-actions { flex-wrap: wrap; justify-content: flex-start; }
 }
+
+.page-enter { animation: page-enter 420ms ease both; }
+@keyframes page-enter {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.reveal { animation: reveal-up 520ms cubic-bezier(.2,.7,.2,1) both; }
+@keyframes reveal-up {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.brand-mark { transition: transform 240ms ease; }
+.brand:hover .brand-mark { transform: rotate(-8deg) scale(1.04); }
+.button, .request-row, .offer-card, .guide-step {
+  transition: transform 180ms ease, box-shadow 180ms ease, background-color 180ms ease, border-color 180ms ease;
+}
+.button:hover, .request-row:hover, .guide-step:hover { transform: translateY(-1px); }
+.online-mark {
+  align-items: center;
+  color: var(--muted);
+  display: inline-flex;
+  font-size: 11px;
+  font-weight: 650;
+  gap: 6px;
+  letter-spacing: 0.02em;
+}
+.online-dot {
+  background: #b7b7b0;
+  border-radius: 50%;
+  display: inline-block;
+  height: 8px;
+  width: 8px;
+}
+.online-mark.is-online { color: #4f7a3a; }
+.online-mark.is-online .online-dot {
+  background: #6aa84f;
+  box-shadow: 0 0 0 0 rgba(106, 168, 79, 0.55);
+  animation: pulse-online 1.8s infinite;
+}
+@keyframes pulse-online {
+  0% { box-shadow: 0 0 0 0 rgba(106, 168, 79, 0.45); }
+  70% { box-shadow: 0 0 0 8px rgba(106, 168, 79, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(106, 168, 79, 0); }
+}
+.product-guide {
+  background: linear-gradient(180deg, #f7f8f2 0%, #eef1e7 100%);
+  border: 1px solid var(--line);
+  display: grid;
+  gap: 28px;
+  margin: 28px 0 46px;
+  padding: 28px;
+}
+.product-guide-copy h2 { margin-top: 14px; }
+.product-guide-copy p { color: var(--muted); font-size: 15px; margin-top: 14px; max-width: 520px; }
+.guide-steps {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.guide-step {
+  background: var(--white);
+  border: 1px solid var(--line);
+  color: inherit;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  text-decoration: none;
+}
+.guide-step-icon {
+  align-items: center;
+  background: var(--lime);
+  color: var(--orange);
+  display: inline-flex;
+  height: 34px;
+  justify-content: center;
+  width: 34px;
+}
+.guide-step strong { font-size: 14px; }
+.guide-step span { color: var(--muted); font-size: 12px; line-height: 1.45; }
+.request-row-presence {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 8px;
+}
+.offer-chip {
+  background: #eef4e5;
+  color: #4f7a3a;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 8px;
+}
+.review-list { display: flex; flex-direction: column; gap: 12px; }
+.review-card {
+  background: var(--white);
+  border: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px;
+}
+.review-card p { color: var(--muted); font-size: 14px; margin: 0; }
+.review-card small { color: var(--muted); font-size: 11px; }
+.request-person .online-mark { display: flex; margin-top: 6px; }
+@media (max-width: 900px) {
+  .guide-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 600px) {
+  .guide-steps { grid-template-columns: 1fr; }
+  .product-guide { padding: 20px; }
+}

@@ -5,6 +5,7 @@ import { ArrowRight, CalendarCheck, CheckCircle2, CreditCard, LoaderCircle, Play
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { AppShell } from '../../components/app-shell';
+import { ProductGuide } from '../../components/product-guide';
 import { apiFetch, BookingSummary, formatMoney, newIdempotencyKey, Profile } from '../../lib/api';
 
 export default function BookingsPage() {
@@ -13,10 +14,16 @@ export default function BookingsPage() {
   const bookings = useQuery({ queryKey: ['bookings'], queryFn: () => apiFetch<BookingSummary[]>('/bookings'), enabled: Boolean(profile.data) });
   const [scheduleAt, setScheduleAt] = useState<Record<string, string>>({});
   const [reviewDraft, setReviewDraft] = useState<Record<string, { rating: number; body: string }>>({});
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['bookings'] });
     queryClient.invalidateQueries({ queryKey: ['requests'] });
+    queryClient.invalidateQueries({ queryKey: ['profile'] });
+  };
+
+  const onError = (error: unknown) => {
+    setActionError(error instanceof Error ? error.message : 'Something went wrong');
   };
 
   const pay = useMutation({
@@ -34,7 +41,8 @@ export default function BookingsPage() {
         });
       }
     },
-    onSuccess: invalidate,
+    onSuccess: () => { setActionError(null); invalidate(); },
+    onError,
   });
 
   const schedule = useMutation({
@@ -43,23 +51,27 @@ export default function BookingsPage() {
         method: 'PATCH',
         body: JSON.stringify({ scheduledAt: new Date(scheduledAt).toISOString() }),
       }),
-    onSuccess: invalidate,
+    onSuccess: () => { setActionError(null); invalidate(); },
+    onError,
   });
 
   const start = useMutation({
     mutationFn: (id: string) => apiFetch(`/bookings/${id}/start`, { method: 'PATCH' }),
-    onSuccess: invalidate,
+    onSuccess: () => { setActionError(null); invalidate(); },
+    onError,
   });
 
   const complete = useMutation({
     mutationFn: (id: string) => apiFetch(`/bookings/${id}/complete`, { method: 'PATCH' }),
-    onSuccess: invalidate,
+    onSuccess: () => { setActionError(null); invalidate(); },
+    onError,
   });
 
   const review = useMutation({
     mutationFn: ({ bookingId, rating, body }: { bookingId: string; rating: number; body: string }) =>
       apiFetch('/reviews', { method: 'POST', body: JSON.stringify({ bookingId, rating, body }) }),
-    onSuccess: invalidate,
+    onSuccess: () => { setActionError(null); invalidate(); },
+    onError,
   });
 
   if (profile.isLoading) {
@@ -75,6 +87,8 @@ export default function BookingsPage() {
         <div className="eyebrow">Job lifecycle</div>
         <h1>Bookings in<br /><i>motion.</i></h1>
         <p>Pay, schedule, start, finish, and review — all in one place.</p>
+        <ProductGuide role={profile.data?.role} />
+        {actionError && <div className="status-panel error-panel">{actionError}</div>}
         {bookings.isLoading ? (
           <div className="status-panel"><LoaderCircle className="spin" size={20} /> Loading bookings...</div>
         ) : !bookings.data?.length ? (
@@ -82,11 +96,11 @@ export default function BookingsPage() {
         ) : (
           <div className="booking-list">
             {bookings.data.map((booking) => {
-              const isCustomer = profile.data?.id === booking.customerId || profile.data?.role === 'CUSTOMER';
-              const isProvider = profile.data?.role === 'PROVIDER';
+              const isBookingCustomer = profile.data?.id === booking.customerId;
+              const isBookingProvider = profile.data?.id === booking.providerId;
               const draft = reviewDraft[booking.id] ?? { rating: 5, body: '' };
               return (
-                <article className="booking-card" key={booking.id}>
+                <article className="booking-card reveal" key={booking.id}>
                   <div className="booking-card-head">
                     <div>
                       <small>{booking.request?.service?.name ?? 'Service'}</small>
@@ -101,12 +115,12 @@ export default function BookingsPage() {
                     {booking.request?.id && <Link href={`/requests/${booking.request.id}`}>View request</Link>}
                   </div>
                   <div className="booking-actions">
-                    {booking.status === 'PAYMENT_PENDING' && isCustomer && (
+                    {booking.status === 'PAYMENT_PENDING' && isBookingCustomer && (
                       <button className="button button-dark" onClick={() => pay.mutate(booking.id)} disabled={pay.isPending}>
                         {pay.isPending ? <LoaderCircle className="spin" size={16} /> : <CreditCard size={16} />} Confirm payment
                       </button>
                     )}
-                    {booking.status === 'PAID' && (
+                    {booking.status === 'PAID' && (isBookingCustomer || isBookingProvider) && (
                       <>
                         <input
                           type="datetime-local"
@@ -122,17 +136,17 @@ export default function BookingsPage() {
                         </button>
                       </>
                     )}
-                    {booking.status === 'SCHEDULED' && isProvider && (
+                    {booking.status === 'SCHEDULED' && isBookingProvider && (
                       <button className="button button-dark" onClick={() => start.mutate(booking.id)} disabled={start.isPending}>
                         <Play size={16} /> Start job
                       </button>
                     )}
-                    {booking.status === 'IN_PROGRESS' && (
+                    {booking.status === 'IN_PROGRESS' && (isBookingCustomer || isBookingProvider) && (
                       <button className="button button-dark" onClick={() => complete.mutate(booking.id)} disabled={complete.isPending}>
                         <CheckCircle2 size={16} /> Mark complete
                       </button>
                     )}
-                    {booking.status === 'COMPLETED' && isCustomer && !booking.review && (
+                    {booking.status === 'COMPLETED' && isBookingCustomer && !booking.review && (
                       <div className="review-form">
                         <label>Rating
                           <select
@@ -147,15 +161,15 @@ export default function BookingsPage() {
                             rows={3}
                             value={draft.body}
                             onChange={(e) => setReviewDraft((prev) => ({ ...prev, [booking.id]: { ...draft, body: e.target.value } }))}
-                            placeholder="How did the job go?"
+                            placeholder="How did the job go? Share at least a short note."
                           />
                         </label>
                         <button
                           className="button button-dark"
                           disabled={draft.body.trim().length < 8 || review.isPending}
-                          onClick={() => review.mutate({ bookingId: booking.id, rating: draft.rating, body: draft.body })}
+                          onClick={() => review.mutate({ bookingId: booking.id, rating: draft.rating, body: draft.body.trim() })}
                         >
-                          <Star size={16} /> Submit review
+                          {review.isPending ? <LoaderCircle className="spin" size={16} /> : <Star size={16} />} Submit review
                         </button>
                       </div>
                     )}

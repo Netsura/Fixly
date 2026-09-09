@@ -38,3 +38,13 @@ export const env = environmentSchema.parse({
   STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET,
   UPLOAD_DIR: process.env.UPLOAD_DIR,
 });
+
+if (env.NODE_ENV === 'production') {
+  const weak = /replace-with|changeme|secret|password123|fixly/i;
+  if (weak.test(env.JWT_ACCESS_SECRET) || weak.test(env.JWT_REFRESH_SECRET)) {
+    throw new Error('Production JWT secrets are insecure. Set strong unique secrets.');
+  }
+  if (env.JWT_ACCESS_SECRET === env.JWT_REFRESH_SECRET) {
+    throw new Error('JWT_ACCESS_SECRET and JWT_REFRESH_SECRET must be different in production.');
+  }
+}

@@ -20,7 +20,9 @@ export type ServiceRequest = {
   service: Service;
   offers?: Offer[];
   customer?: { id: string; profile: { displayName: string } | null };
+  customerOnline?: boolean;
   booking?: BookingSummary | null;
+  myOffer?: { id: string; priceCents: number; status: string } | null;
 };
 
 export type Offer = {
@@ -29,6 +31,7 @@ export type Offer = {
   message: string;
   availableAt: string;
   status: string;
+  providerOnline?: boolean;
   provider: {
     id: string;
     email: string;
@@ -65,6 +68,7 @@ export type Profile = {
   email: string;
   role: UserRole;
   emailVerifiedAt?: string | null;
+  online?: boolean;
   profile: { displayName: string; bio: string | null; ratingAverage: string; ratingCount: number } | null;
 };
 

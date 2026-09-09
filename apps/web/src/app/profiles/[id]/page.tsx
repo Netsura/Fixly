@@ -5,12 +5,15 @@ import { ArrowLeft, ArrowRight, LoaderCircle, MapPin, MessageSquare, Star, Wrenc
 import { useParams, useRouter } from 'next/navigation';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { AppShell } from '../../../components/app-shell';
+import { OnlineMark } from '../../../components/presence';
 import { apiFetch, Profile } from '../../../lib/api';
 
 type PublicProfile = Pick<Profile, 'id' | 'role'> & {
+  online?: boolean;
   profile: { displayName: string; bio: string | null; ratingAverage: string; ratingCount: number; serviceArea: unknown } | null;
   services: { id: string; name: string; slug: string }[];
   requests: { id: string; title: string; status: string; service: { id: string; name: string; slug: string } }[];
+  reviews?: { id: string; rating: number; body: string; createdAt: string; author: { id: string; profile: { displayName: string } | null } }[];
 };
 
 type Conversation = { id: string };
@@ -53,13 +56,14 @@ export default function PublicProfilePage() {
     <AppShell>
       <section className="page-section public-profile-page">
         <Link href="/services" className="back-link"><ArrowLeft size={16} /> Back to services</Link>
-        <div className="public-profile-hero">
+        <div className="public-profile-hero reveal">
           <div className="public-avatar">{person.displayName.slice(0, 1)}</div>
-          <div className="eyebrow">Verified Fixly provider</div>
+          <div className="eyebrow">Fixly profile</div>
           <h1>{person.displayName}<br /><i>does good work.</i></h1>
           <div className="public-profile-rating">
             <Star size={16} fill="currentColor" />
             {person.ratingCount ? `${person.ratingAverage} from ${person.ratingCount} reviews` : 'New provider'}
+            <OnlineMark userId={profile.data.id} online={profile.data.online} />
           </div>
           <p>{person.bio ?? 'This provider has not added a bio yet.'}</p>
           {person.serviceArea !== null && person.serviceArea !== undefined && (
@@ -103,12 +107,27 @@ export default function PublicProfilePage() {
           </div>
         )}
 
+        {(profile.data.reviews?.length ?? 0) > 0 && (
+          <div className="public-profile-section">
+            <div className="section-label"><span>Reviews</span><span>{profile.data.reviews?.length}</span></div>
+            <div className="review-list">
+              {profile.data.reviews?.map((item) => (
+                <article className="review-card reveal" key={item.id}>
+                  <strong>{item.author.profile?.displayName ?? 'Customer'} · {item.rating}/5</strong>
+                  <p>{item.body}</p>
+                  <small>{new Date(item.createdAt).toLocaleDateString()}</small>
+                </article>
+              ))}
+            </div>
+          </div>
+        )}
+
         {profile.data.requests.length > 0 && (
           <div className="public-profile-section">
-            <div className="section-label"><span>Recent requests</span><span>{profile.data.requests.length}</span></div>
+            <div className="section-label"><span>Recent completed work</span><span>{profile.data.requests.length}</span></div>
             <div className="public-request-list">
               {profile.data.requests.map((request) => (
-                <Link className="public-request-row" href={`/services/${request.service.slug}`} key={request.id}>
+                <Link className="public-request-row" href={`/requests/${request.id}`} key={request.id}>
                   <span>
                     <strong>{request.title}</strong>
                     <small>{request.service.name} · {request.status.replaceAll('_', ' ').toLowerCase()}</small>

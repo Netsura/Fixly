@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Query, UseGuards } from '@nestjs/common';
 import { UserRole } from '@fixly/database';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -29,6 +29,16 @@ export class UsersController {
   @Roles(UserRole.PROVIDER)
   getProviderProfile(@CurrentUser() user: AuthenticatedUser) {
     return this.usersService.getProfile(user.id);
+  }
+
+  @Get('presence')
+  @UseGuards(JwtAuthGuard)
+  presence(@Query('ids') ids?: string) {
+    const userIds = (ids ?? '')
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean);
+    return this.usersService.getPresence(userIds);
   }
 
   @Get(':id')

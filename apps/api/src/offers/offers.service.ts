@@ -5,8 +5,24 @@ import { CreateOfferDto } from './dto/create-offer.dto';
 @Injectable()
 export class OffersService {
   async listForRequest(userId: string, role: UserRole, requestId: string) {
-    const request = await prisma.serviceRequest.findUnique({ where: { id: requestId }, select: { customerId: true, status: true } });
-    if (!request || (role === UserRole.CUSTOMER && request.customerId !== userId)) {
+    const request = await prisma.serviceRequest.findUnique({
+      where: { id: requestId },
+      select: {
+        customerId: true,
+        status: true,
+        offers: { where: { providerId: userId }, select: { id: true } },
+        booking: { select: { providerId: true } },
+      },
+    });
+    if (!request) throw new NotFoundException('Request not found');
+    const isCustomerOwner = role === UserRole.CUSTOMER && request.customerId === userId;
+    const isProviderParticipant =
+      role === UserRole.PROVIDER &&
+      (request.offers.length > 0 ||
+        request.booking?.providerId === userId ||
+        ([RequestStatus.PUBLISHED, RequestStatus.OFFER_RECEIVED] as RequestStatus[]).includes(request.status));
+    const isAdmin = role === UserRole.ADMIN;
+    if (!isCustomerOwner && !isProviderParticipant && !isAdmin) {
       throw new NotFoundException('Request not found');
     }
     const offers = await prisma.offer.findMany({

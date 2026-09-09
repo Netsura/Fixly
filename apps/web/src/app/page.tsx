@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { ArrowRight, CheckCircle2, MapPin, ShieldCheck, Sparkles } from 'lucide-react';
 import { AppShell } from '../components/app-shell';
+import { ProductGuide } from '../components/product-guide';
 import { ServiceGrid } from '../components/service-grid';
 
 export default function Home() {
@@ -23,6 +24,7 @@ export default function Home() {
           <div className="hero-aside-bottom"><strong>One request</strong><span>Multiple useful offers</span></div>
         </div>
       </section>
+      <ProductGuide />
       <section className="home-services">
         <div className="section-label"><span>What can we help with?</span><Link href="/services">View all services <ArrowRight size={15} /></Link></div>
         <ServiceGrid limit={5} />
