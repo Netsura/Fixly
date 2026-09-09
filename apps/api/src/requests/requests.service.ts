@@ -1,5 +1,5 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma, RequestStatus, prisma, UserRole } from '@fixly/database';
+import { canTransitionRequest, Prisma, RequestStatus, prisma, requestSourcesFor, UserRole } from '@fixly/database';
 import { AuthenticatedUser } from '../auth/auth.types';
 import { PresenceService } from '../conversations/presence.service';
 import { CreateRequestDto } from './dto/create-request.dto';
@@ -181,10 +181,17 @@ export class RequestsService {
     if (!request || request.customerId !== customerId) {
       throw new NotFoundException('Request not found');
     }
-    if (([RequestStatus.COMPLETED, RequestStatus.REVIEWED, RequestStatus.CANCELLED] as RequestStatus[]).includes(request.status)) {
+    if (!canTransitionRequest(request.status, RequestStatus.CANCELLED)) {
       throw new ConflictException('Request cannot be cancelled in its current state');
     }
-    return prisma.serviceRequest.update({ where: { id }, data: { status: RequestStatus.CANCELLED } });
+    const cancelled = await prisma.serviceRequest.updateMany({
+      where: { id, status: { in: requestSourcesFor(RequestStatus.CANCELLED) } },
+      data: { status: RequestStatus.CANCELLED },
+    });
+    if (cancelled.count !== 1) {
+      throw new ConflictException('Request cannot be cancelled in its current state');
+    }
+    return prisma.serviceRequest.findUniqueOrThrow({ where: { id } });
   }
 
   async publish(customerId: string, id: string) {
@@ -195,9 +202,15 @@ export class RequestsService {
     if (request.status !== RequestStatus.DRAFT) {
       throw new ConflictException('Only draft requests can be published');
     }
-    return prisma.serviceRequest.update({
-      where: { id },
+    const published = await prisma.serviceRequest.updateMany({
+      where: { id, status: { in: requestSourcesFor(RequestStatus.PUBLISHED) } },
       data: { status: RequestStatus.PUBLISHED },
+    });
+    if (published.count !== 1) {
+      throw new ConflictException('Only draft requests can be published');
+    }
+    return prisma.serviceRequest.findUniqueOrThrow({
+      where: { id },
       include: { service: true, attachments: true },
     });
   }

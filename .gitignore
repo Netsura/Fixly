@@ -7,6 +7,8 @@ coverage/
 .env.*
 !.env.example
 packages/database/.env
-storage/
+# Uploaded files only. A bare `storage/` also matched apps/api/src/storage,
+# which silently kept source files out of the repo.
+apps/api/storage/
 *.tsbuildinfo
 .DS_Store

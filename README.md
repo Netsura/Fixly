@@ -62,7 +62,33 @@ Fixly is a local-services marketplace connecting customers with service provider
 - `pnpm build` - build all packages/apps
 - `pnpm typecheck` - typecheck all packages/apps
 - `pnpm lint` - lint all packages/apps
-- `pnpm test` - run all available tests
+- `pnpm test` - run unit tests (no external services needed)
+- `pnpm test:integration` - run integration tests (needs Postgres and Redis)
+
+## Testing
+
+Unit tests live beside the code as `*.spec.ts` and cover pure logic such as the
+lifecycle state machine, CSRF token signing, and audit-metadata redaction.
+
+Integration tests are `*.int-spec.ts` under `apps/api/test/integration` and run
+against a real Postgres and Redis. They boot the Nest app through the same
+`configureApp` bootstrap the server uses, so guards, middleware, CORS, and
+validation all behave as they do in production. Coverage focuses on the things
+unit tests cannot prove: session rotation and reuse detection, single-use auth
+tokens, CSRF and origin enforcement, role and ownership boundaries, concurrent
+state transitions, webhook exactly-once handling, and audit-log
+transactionality.
+
+To run them locally:
+
+```bash
+docker compose up -d postgres redis
+pnpm --filter @fixly/database exec prisma migrate deploy
+pnpm test:integration
+```
+
+Both suites, plus lint, typecheck, build, and a Prisma schema-drift check, run
+on every pull request via `.github/workflows/ci.yml`.
 
 ## Seed Accounts
 

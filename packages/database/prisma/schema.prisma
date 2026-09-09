@@ -97,6 +97,7 @@ model AuthToken {
 model AuthSession {
   id               String    @id @default(uuid()) @db.Uuid
   userId           String    @map("user_id") @db.Uuid
+  familyId         String    @map("family_id") @db.Uuid
   refreshTokenHash String    @map("refresh_token_hash")
   expiresAt        DateTime  @map("expires_at")
   revokedAt        DateTime? @map("revoked_at")
@@ -104,6 +105,7 @@ model AuthSession {
   user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, revokedAt, expiresAt])
+  @@index([familyId, revokedAt])
 }
 
 model Profile {
@@ -231,10 +233,13 @@ model Payment {
 }
 
 model PaymentWebhookEvent {
-  id          String   @id @default(uuid()) @db.Uuid
-  eventId     String   @unique @map("event_id")
-  eventType   String   @map("event_type")
-  processedAt DateTime @default(now()) @map("processed_at")
+  id          String    @id @default(uuid()) @db.Uuid
+  eventId     String    @unique @map("event_id")
+  eventType   String    @map("event_type")
+  receivedAt  DateTime  @default(now()) @map("received_at")
+  processedAt DateTime? @map("processed_at")
+
+  @@index([processedAt, receivedAt])
 }
 
 model Review {
@@ -285,15 +290,31 @@ model Message {
 }
 
 model Notification {
-  id        String   @id @default(uuid()) @db.Uuid
-  userId    String   @map("user_id") @db.Uuid
-  type      String
-  payload   Json
-  readAt    DateTime? @map("read_at")
-  createdAt DateTime @default(now()) @map("created_at")
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  type       String
+  payload    Json
+  dedupeKey  String?  @unique @map("dedupe_key")
+  readAt     DateTime? @map("read_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, readAt, createdAt])
+}
+
+model EmailDelivery {
+  id             String    @id @default(uuid()) @db.Uuid
+  idempotencyKey String    @unique @map("idempotency_key")
+  recipient      String
+  subject        String
+  /** Set by whichever worker won the send claim; cleared again on failure. */
+  claimedAt      DateTime? @map("claimed_at")
+  sentAt         DateTime? @map("sent_at")
+  failedAt       DateTime? @map("failed_at")
+  attempts       Int       @default(0)
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  @@index([claimedAt, createdAt])
 }
 
 model Report {

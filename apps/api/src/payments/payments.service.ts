@@ -1,7 +1,18 @@
 import { ConflictException, Injectable, NotFoundException, ServiceUnavailableException, UnauthorizedException } from '@nestjs/common';
 import Stripe from 'stripe';
-import { BookingStatus, PaymentStatus, prisma, RequestStatus } from '@fixly/database';
+import {
+  BookingStatus,
+  bookingSourcesFor,
+  canTransitionPayment,
+  PaymentStatus,
+  paymentSourcesFor,
+  Prisma,
+  prisma,
+  RequestStatus,
+  requestSourcesFor,
+} from '@fixly/database';
 import { env } from '@fixly/config';
+import { isUniqueConstraintError } from '../common/prisma-errors';
 
 @Injectable()
 export class PaymentsService {
@@ -62,7 +73,7 @@ export class PaymentsService {
       });
       return { paymentId: payment.id, clientSecret: paymentIntent.client_secret, status: payment.status };
     } catch (error) {
-      if (error instanceof Error && error.message.includes('Unique constraint')) {
+      if (isUniqueConstraintError(error)) {
         const payment = await prisma.payment.findUniqueOrThrow({
           where: { idempotencyKey },
           include: { booking: { select: { customerId: true } } },
@@ -87,24 +98,40 @@ export class PaymentsService {
       throw new UnauthorizedException('Invalid Stripe webhook signature');
     }
 
-    const existingEvent = await prisma.paymentWebhookEvent.findUnique({ where: { eventId: event.id } });
-    if (existingEvent) return { received: true, duplicate: true };
-
-    if (event.type === 'payment_intent.succeeded') {
-      await this.markSucceeded(event.data.object as Stripe.PaymentIntent);
-    } else if (event.type === 'payment_intent.payment_failed') {
-      await this.markFailed(event.data.object as Stripe.PaymentIntent);
-    } else if (event.type === 'charge.refunded') {
-      const charge = event.data.object as Stripe.Charge;
-      if (typeof charge.payment_intent === 'string') await this.markRefunded(charge.payment_intent);
-    }
+    // The dedupe claim and the side effects share one transaction: a concurrent
+    // redelivery blocks on the unique index and then rolls back entirely, and a
+    // failed handler releases the claim so Stripe's retry can reprocess.
     try {
-      await prisma.paymentWebhookEvent.create({ data: { eventId: event.id, eventType: event.type } });
+      await prisma.$transaction(async (transaction) => {
+        await transaction.paymentWebhookEvent.create({
+          data: { eventId: event.id, eventType: event.type, processedAt: new Date() },
+        });
+        await this.applyEvent(transaction, event);
+      });
     } catch (error) {
-      if (!(error instanceof Error && error.message.includes('Unique constraint'))) throw error;
-      return { received: true, duplicate: true };
+      if (isUniqueConstraintError(error, 'event_id')) {
+        return { received: true, duplicate: true };
+      }
+      throw error;
     }
     return { received: true, duplicate: false };
+  }
+
+  private async applyEvent(transaction: Prisma.TransactionClient, event: Stripe.Event) {
+    if (event.type === 'payment_intent.succeeded') {
+      await this.markSucceeded(transaction, event.data.object as Stripe.PaymentIntent);
+      return;
+    }
+    if (event.type === 'payment_intent.payment_failed') {
+      await this.markFailed(transaction, event.data.object as Stripe.PaymentIntent);
+      return;
+    }
+    if (event.type === 'charge.refunded') {
+      const charge = event.data.object as Stripe.Charge;
+      if (typeof charge.payment_intent === 'string') {
+        await this.markRefunded(transaction, charge.payment_intent);
+      }
+    }
   }
 
   async getPayment(customerId: string, paymentId: string) {
@@ -118,18 +145,24 @@ export class PaymentsService {
     return intent.client_secret;
   }
 
-  private async markSucceeded(intent: Stripe.PaymentIntent) {
-    const bookingId = intent.metadata.bookingId;
-    if (!bookingId) return;
-    await prisma.$transaction(async (transaction) => {
-      const payment = await transaction.payment.findUnique({ where: { stripePaymentIntentId: intent.id } });
-      if (!payment || payment.status === PaymentStatus.SUCCEEDED) return;
-      await transaction.payment.update({ where: { id: payment.id }, data: { status: PaymentStatus.SUCCEEDED } });
-      await transaction.booking.updateMany({ where: { id: bookingId, status: BookingStatus.PAYMENT_PENDING }, data: { status: BookingStatus.PAID } });
-      await transaction.serviceRequest.updateMany({
-        where: { booking: { id: bookingId }, status: { in: [RequestStatus.PROVIDER_SELECTED, RequestStatus.PAYMENT_PENDING] } },
-        data: { status: RequestStatus.PAID },
-      });
+  private async markSucceeded(transaction: Prisma.TransactionClient, intent: Stripe.PaymentIntent) {
+    const payment = await transaction.payment.findUnique({
+      where: { stripePaymentIntentId: intent.id },
+      select: { id: true, status: true, bookingId: true },
+    });
+    if (!payment || !canTransitionPayment(payment.status, PaymentStatus.SUCCEEDED)) return;
+
+    await transaction.payment.updateMany({
+      where: { id: payment.id, status: { in: paymentSourcesFor(PaymentStatus.SUCCEEDED) } },
+      data: { status: PaymentStatus.SUCCEEDED },
+    });
+    await transaction.booking.updateMany({
+      where: { id: payment.bookingId, status: { in: bookingSourcesFor(BookingStatus.PAID) } },
+      data: { status: BookingStatus.PAID },
+    });
+    await transaction.serviceRequest.updateMany({
+      where: { booking: { id: payment.bookingId }, status: { in: requestSourcesFor(RequestStatus.PAID) } },
+      data: { status: RequestStatus.PAID },
     });
   }
 
@@ -161,20 +194,50 @@ export class PaymentsService {
         },
         update: { status: PaymentStatus.SUCCEEDED },
       });
-      await transaction.booking.update({ where: { id: bookingId }, data: { status: BookingStatus.PAID } });
-      await transaction.serviceRequest.update({
-        where: { id: booking.requestId },
+      const paid = await transaction.booking.updateMany({
+        where: { id: bookingId, status: { in: bookingSourcesFor(BookingStatus.PAID) } },
+        data: { status: BookingStatus.PAID },
+      });
+      if (paid.count !== 1) {
+        throw new ConflictException('Booking state changed concurrently');
+      }
+      await transaction.serviceRequest.updateMany({
+        where: { id: booking.requestId, status: { in: requestSourcesFor(RequestStatus.PAID) } },
         data: { status: RequestStatus.PAID },
       });
       return payment;
     });
   }
 
-  private async markFailed(intent: Stripe.PaymentIntent) {
-    await prisma.payment.updateMany({ where: { stripePaymentIntentId: intent.id }, data: { status: PaymentStatus.FAILED } });
+  private async markFailed(transaction: Prisma.TransactionClient, intent: Stripe.PaymentIntent) {
+    await transaction.payment.updateMany({
+      where: { stripePaymentIntentId: intent.id, status: { in: paymentSourcesFor(PaymentStatus.FAILED) } },
+      data: { status: PaymentStatus.FAILED },
+    });
   }
 
-  private async markRefunded(paymentIntentId: string) {
-    await prisma.payment.updateMany({ where: { stripePaymentIntentId: paymentIntentId }, data: { status: PaymentStatus.REFUNDED } });
+  private async markRefunded(transaction: Prisma.TransactionClient, paymentIntentId: string) {
+    const payment = await transaction.payment.findUnique({
+      where: { stripePaymentIntentId: paymentIntentId },
+      select: { id: true, bookingId: true },
+    });
+    if (!payment) return;
+
+    const refunded = await transaction.payment.updateMany({
+      where: { id: payment.id, status: { in: paymentSourcesFor(PaymentStatus.REFUNDED) } },
+      data: { status: PaymentStatus.REFUNDED },
+    });
+    if (refunded.count !== 1) return;
+
+    // A refund unwinds the job: cancel the booking and its request when they
+    // have not already reached a terminal state.
+    await transaction.booking.updateMany({
+      where: { id: payment.bookingId, status: { in: bookingSourcesFor(BookingStatus.CANCELLED) } },
+      data: { status: BookingStatus.CANCELLED },
+    });
+    await transaction.serviceRequest.updateMany({
+      where: { booking: { id: payment.bookingId }, status: { in: requestSourcesFor(RequestStatus.CANCELLED) } },
+      data: { status: RequestStatus.CANCELLED },
+    });
   }
 }

@@ -1,6 +1,15 @@
 import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { BookingStatus, prisma, RequestStatus, UserRole } from '@fixly/database';
+import {
+  BOOKING_TO_REQUEST_STATUS,
+  BookingStatus,
+  bookingSourcesFor,
+  canTransitionBooking,
+  prisma,
+  requestSourcesFor,
+  UserRole,
+} from '@fixly/database';
 import { ScheduleBookingDto } from './dto/schedule-booking.dto';
+import { JobsService } from '../jobs/jobs.service';
 
 const bookingInclude = {
   request: { include: { service: true } },
@@ -14,6 +23,8 @@ const bookingInclude = {
 
 @Injectable()
 export class BookingsService {
+  constructor(private readonly jobsService: JobsService) {}
+
   async list(userId: string, role: UserRole) {
     const where = role === UserRole.PROVIDER
       ? { providerId: userId }
@@ -36,9 +47,7 @@ export class BookingsService {
 
   async schedule(userId: string, role: UserRole, id: string, input: ScheduleBookingDto) {
     return this.transition(userId, role, id, {
-      from: [BookingStatus.PAID],
       to: BookingStatus.SCHEDULED,
-      requestTo: RequestStatus.SCHEDULED,
       data: { scheduledAt: new Date(input.scheduledAt) },
       allowRoles: [UserRole.CUSTOMER, UserRole.PROVIDER, UserRole.ADMIN],
     });
@@ -46,39 +55,37 @@ export class BookingsService {
 
   async start(userId: string, role: UserRole, id: string) {
     return this.transition(userId, role, id, {
-      from: [BookingStatus.SCHEDULED],
       to: BookingStatus.IN_PROGRESS,
-      requestTo: RequestStatus.IN_PROGRESS,
       allowRoles: [UserRole.PROVIDER, UserRole.ADMIN],
     });
   }
 
   async complete(userId: string, role: UserRole, id: string) {
     return this.transition(userId, role, id, {
-      from: [BookingStatus.IN_PROGRESS],
       to: BookingStatus.COMPLETED,
-      requestTo: RequestStatus.COMPLETED,
       allowRoles: [UserRole.CUSTOMER, UserRole.PROVIDER, UserRole.ADMIN],
     });
   }
 
   async cancel(userId: string, role: UserRole, id: string) {
     return this.transition(userId, role, id, {
-      from: [BookingStatus.PAYMENT_PENDING, BookingStatus.PAID, BookingStatus.SCHEDULED],
       to: BookingStatus.CANCELLED,
-      requestTo: RequestStatus.CANCELLED,
       allowRoles: [UserRole.CUSTOMER, UserRole.PROVIDER, UserRole.ADMIN],
     });
   }
 
+  /**
+   * All booking state changes funnel through here. The legal source states come
+   * from the shared state machine rather than per-method literals, and the
+   * update is conditional on those states so a concurrent writer cannot land a
+   * transition that the read-then-check would have rejected.
+   */
   private async transition(
     userId: string,
     role: UserRole,
     id: string,
     options: {
-      from: BookingStatus[];
       to: BookingStatus;
-      requestTo: RequestStatus;
       data?: { scheduledAt?: Date };
       allowRoles: UserRole[];
     },
@@ -87,29 +94,65 @@ export class BookingsService {
       throw new ForbiddenException('You cannot perform this booking action');
     }
 
-    return prisma.$transaction(async (transaction) => {
+    const sources = bookingSourcesFor(options.to);
+    const requestTo = BOOKING_TO_REQUEST_STATUS[options.to];
+
+    const updated = await prisma.$transaction(async (transaction) => {
       const booking = await transaction.booking.findUnique({ where: { id } });
       if (!booking) throw new NotFoundException('Booking not found');
       this.assertParticipant(booking, userId, role);
-      if (!options.from.includes(booking.status)) {
+      if (!canTransitionBooking(booking.status, options.to)) {
         throw new ConflictException(`Booking cannot move to ${options.to} from ${booking.status}`);
       }
 
       const updated = await transaction.booking.updateMany({
-        where: { id, status: { in: options.from } },
+        where: { id, status: { in: sources } },
         data: { status: options.to, ...options.data },
       });
       if (updated.count !== 1) {
         throw new ConflictException('Booking state changed concurrently');
       }
 
-      await transaction.serviceRequest.update({
-        where: { id: booking.requestId },
-        data: { status: options.requestTo },
+      await transaction.serviceRequest.updateMany({
+        where: { id: booking.requestId, status: { in: requestSourcesFor(requestTo) } },
+        data: { status: requestTo },
       });
 
       return transaction.booking.findUniqueOrThrow({ where: { id }, include: bookingInclude });
     });
+
+    await this.notifyCounterparty(updated, userId, options.to);
+    return updated;
+  }
+
+  /**
+   * Tells the other participant about the change. The dedupe key is the
+   * booking plus its new status, so a retried job can never produce a second
+   * notification for the same transition.
+   */
+  private async notifyCounterparty(
+    booking: { id: string; customerId: string; providerId: string },
+    actorId: string,
+    status: BookingStatus,
+  ) {
+    const recipientId = booking.customerId === actorId ? booking.providerId : booking.customerId;
+    if (recipientId === actorId) return;
+
+    try {
+      await this.jobsService.enqueueNotification({
+        userId: recipientId,
+        type: 'BOOKING_STATUS',
+        payload: { bookingId: booking.id, status },
+        dedupeKey: `BOOKING_STATUS:${booking.id}:${status}`,
+      });
+    } catch (error) {
+      // The transition is already committed; a queue outage must not undo it.
+      console.error(JSON.stringify({
+        event: 'booking.notification_enqueue_failed',
+        bookingId: booking.id,
+        message: error instanceof Error ? error.message : 'unknown error',
+      }));
+    }
   }
 
   private assertParticipant(

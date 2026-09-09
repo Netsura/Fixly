@@ -139,7 +139,9 @@ export class ConversationsService {
         userId: recipientId,
         type: 'NEW_MESSAGE',
         payload: { conversationId, messageId: message.id },
+        dedupeKey: `NEW_MESSAGE:${message.id}:${recipientId}`,
       })),
+      skipDuplicates: true,
     });
     await this.jobsService.enqueueMessageEmail({ messageId: message.id, conversationId, recipientIds });
     return {

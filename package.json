@@ -9,6 +9,7 @@
     "format": "prettier --write .",
     "lint": "pnpm -r --if-present lint",
     "test": "pnpm -r --if-present test",
+    "test:integration": "pnpm -r --if-present test:integration",
     "typecheck": "pnpm -r --if-present typecheck",
     "db:generate": "pnpm --filter @fixly/database generate",
     "db:migrate": "pnpm --filter @fixly/database migrate",
