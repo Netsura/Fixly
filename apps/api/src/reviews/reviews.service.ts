@@ -1,5 +1,5 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { BookingStatus, prisma, RequestStatus } from '@fixly/database';
+import { BookingStatus, Prisma, prisma, RequestStatus } from '@fixly/database';
 import { CreateReviewDto } from './dto/create-review.dto';
 
 @Injectable()
@@ -18,6 +18,9 @@ export class ReviewsService {
       }
       if (booking.review) {
         throw new ConflictException('Booking already has a review');
+      }
+      if (booking.providerId === authorId) {
+        throw new ConflictException('You cannot review yourself');
       }
 
       const review = await transaction.review.create({
@@ -44,10 +47,17 @@ export class ReviewsService {
         _avg: { rating: true },
         _count: { rating: true },
       });
-      await transaction.profile.update({
+
+      await transaction.profile.upsert({
         where: { userId: booking.providerId },
-        data: {
-          ratingAverage: aggregate._avg.rating ?? 0,
+        create: {
+          userId: booking.providerId,
+          displayName: 'Provider',
+          ratingAverage: new Prisma.Decimal(aggregate._avg.rating ?? input.rating),
+          ratingCount: aggregate._count.rating,
+        },
+        update: {
+          ratingAverage: new Prisma.Decimal(aggregate._avg.rating ?? input.rating),
           ratingCount: aggregate._count.rating,
         },
       });

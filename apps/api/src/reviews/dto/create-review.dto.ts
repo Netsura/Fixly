@@ -1,9 +1,11 @@
+import { Type } from 'class-transformer';
 import { IsInt, IsString, IsUUID, Max, MaxLength, Min, MinLength } from 'class-validator';
 
 export class CreateReviewDto {
   @IsUUID()
   bookingId!: string;
 
+  @Type(() => Number)
   @IsInt()
   @Min(1)
   @Max(5)

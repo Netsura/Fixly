@@ -6,6 +6,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AppShell } from '../../../components/app-shell';
 import { OfferForm } from '../../../components/offer-form';
+import { OnlineMark } from '../../../components/presence';
 import { apiFetch, formatMoney, Offer, Profile, ServiceRequest } from '../../../lib/api';
 
 type RequestDetail = ServiceRequest;
@@ -73,7 +74,16 @@ export default function RequestDetailPage() {
           <span><ShieldCheck size={16} /> Private request</span>
         </div>
         <div className="request-people">
-          {item.customer?.profile && <Link href={`/profiles/${item.customer.id}`} className="request-person"><UserRound size={16} /><span><small>Requested by</small><strong>{item.customer.profile.displayName}</strong></span></Link>}
+          {item.customer?.profile && (
+            <Link href={`/profiles/${item.customer.id}`} className="request-person">
+              <UserRound size={16} />
+              <span>
+                <small>Requested by</small>
+                <strong>{item.customer.profile.displayName}</strong>
+                <OnlineMark userId={item.customer.id} online={item.customerOnline} />
+              </span>
+            </Link>
+          )}
           {isCustomer && (['DRAFT', 'PUBLISHED'] as string[]).includes(item.status) && (
             <div className="request-management">
               {item.status === 'DRAFT' && (
@@ -124,6 +134,8 @@ export default function RequestDetailPage() {
                       {offer.provider.profile?.ratingCount
                         ? `${offer.provider.profile.ratingAverage} rating from ${offer.provider.profile.ratingCount} jobs`
                         : 'New to Fixly'}
+                      {' · '}
+                      <OnlineMark userId={offer.provider.id} online={offer.providerOnline} />
                     </small>
                   </div>
                 </div>

@@ -1,9 +1,12 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { prisma, Prisma } from '@fixly/database';
+import { PresenceService } from '../conversations/presence.service';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 
 @Injectable()
 export class UsersService {
+  constructor(private readonly presenceService: PresenceService) {}
+
   async getProfile(userId: string) {
     const user = await prisma.user.findUnique({
       where: { id: userId },
@@ -21,7 +24,7 @@ export class UsersService {
       throw new NotFoundException('User not found');
     }
 
-    return user;
+    return { ...user, online: await this.presenceService.isOnline(userId) };
   }
 
   async updateProfile(userId: string, input: UpdateProfileDto) {
@@ -29,12 +32,12 @@ export class UsersService {
       ...input,
       serviceArea: input.serviceArea as Prisma.InputJsonValue | undefined,
     };
-    const profile = await prisma.profile.update({
+    await prisma.profile.update({
       where: { userId },
       data,
     });
 
-    return this.getProfile(userId).then((user) => ({ ...user, profile }));
+    return this.getProfile(userId);
   }
 
   async getPublicProfile(userId: string) {
@@ -74,6 +77,17 @@ export class UsersService {
             },
           },
         },
+        receivedReviews: {
+          orderBy: { createdAt: 'desc' },
+          take: 20,
+          select: {
+            id: true,
+            rating: true,
+            body: true,
+            createdAt: true,
+            author: { select: { id: true, profile: { select: { displayName: true } } } },
+          },
+        },
       },
     });
     if (!user) throw new NotFoundException('Provider profile not found');
@@ -97,8 +111,14 @@ export class UsersService {
       id: user.id,
       role: user.role,
       profile: user.profile,
+      online: await this.presenceService.isOnline(userId),
       services: [...servicesMap.values()],
       requests,
+      reviews: user.receivedReviews,
     };
+  }
+
+  async getPresence(userIds: string[]) {
+    return this.presenceService.areOnline(userIds.slice(0, 50));
   }
 }

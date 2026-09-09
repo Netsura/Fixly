@@ -6,6 +6,7 @@ import { useSearchParams } from 'next/navigation';
 import { io, Socket } from 'socket.io-client';
 import { useQuery } from '@tanstack/react-query';
 import { AppShell } from '../../components/app-shell';
+import { OnlineMark } from '../../components/presence';
 import { apiFetch, apiUrl, Profile } from '../../lib/api';
 
 type Conversation = {
@@ -117,6 +118,7 @@ function MessagesContent() {
                   <span>
                     <strong>{title}</strong>
                     <small>{conversation.messages[0]?.body ?? 'Start the conversation'}</small>
+                    {peer?.userId && <OnlineMark userId={peer.userId} />}
                   </span>
                 </button>
               );
@@ -131,6 +133,7 @@ function MessagesContent() {
                   <strong>{conversationTitle}</strong>
                   <small>
                     {connected ? <><Wifi size={13} /> Live now</> : <><WifiOff size={13} /> Connecting...</>}
+                    {otherParticipant?.userId ? <> · <OnlineMark userId={otherParticipant.userId} /></> : null}
                   </small>
                 </div>
                 <span className="chat-service">{conversationService}</span>

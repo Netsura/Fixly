@@ -47,8 +47,8 @@ export class AuthController {
     if (token) {
       await this.authService.logout(token);
     }
-    response.clearCookie(ACCESS_TOKEN_COOKIE);
-    response.clearCookie(REFRESH_TOKEN_COOKIE);
+    response.clearCookie(ACCESS_TOKEN_COOKIE, { path: '/' });
+    response.clearCookie(REFRESH_TOKEN_COOKIE, { path: '/api/auth' });
     return { success: true };
   }
 

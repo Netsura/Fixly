@@ -10,6 +10,6 @@ import { PresenceService } from './presence.service';
   imports: [AuthModule, JobsModule],
   controllers: [ConversationsController],
   providers: [ConversationsGateway, ConversationsService, PresenceService],
-  exports: [ConversationsService],
+  exports: [ConversationsService, PresenceService],
 })
 export class ConversationsModule {}
