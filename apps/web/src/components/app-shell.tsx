@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ArrowUpRight, ClipboardList, Compass, Hammer, LogOut, Menu, MessageSquare, UserRound, X } from 'lucide-react';
+import { ArrowUpRight, Bell, BriefcaseBusiness, ClipboardList, Compass, Hammer, LogOut, Menu, MessageSquare, UserRound, X } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiFetch, Profile } from '../lib/api';
 import { useState } from 'react';
@@ -15,7 +15,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const links = [
     { href: '/services', label: 'Find a service', icon: Compass },
     { href: '/requests', label: 'Requests', icon: ClipboardList },
+    { href: '/bookings', label: 'Bookings', icon: BriefcaseBusiness },
     { href: '/messages', label: 'Messages', icon: MessageSquare },
+    { href: '/notifications', label: 'Alerts', icon: Bell },
   ];
 
   return (
@@ -32,8 +34,34 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {links.map(({ href, label, icon: Icon }) => (
             <Link key={href} href={href} onClick={() => setOpen(false)}><Icon size={16} />{label}</Link>
           ))}
+          {profile.data?.role === 'PROVIDER' && (
+            <Link href="/provider/requests" onClick={() => setOpen(false)}><BriefcaseBusiness size={16} />Open jobs</Link>
+          )}
+          {profile.data?.role === 'ADMIN' && (
+            <Link href="/admin" onClick={() => setOpen(false)}>Admin</Link>
+          )}
           <span className="nav-divider" />
-          {profile.data ? <><Link href="/profile" className="nav-login" onClick={() => setOpen(false)}><UserRound size={16} /> Profile</Link><button className="nav-logout" onClick={async () => { await apiFetch('/auth/logout', { method: 'POST' }); queryClient.removeQueries({ queryKey: ['profile'] }); router.push('/'); router.refresh(); }}><LogOut size={15} /> Log out</button></> : <><Link href="/login" className="nav-login" onClick={() => setOpen(false)}>Log in</Link><Link href="/register" className="button button-small" onClick={() => setOpen(false)}>Join Fixly <ArrowUpRight size={15} /></Link></>}
+          {profile.data ? (
+            <>
+              <Link href="/profile" className="nav-login" onClick={() => setOpen(false)}><UserRound size={16} /> Profile</Link>
+              <button
+                className="nav-logout"
+                onClick={async () => {
+                  await apiFetch('/auth/logout', { method: 'POST' });
+                  queryClient.removeQueries({ queryKey: ['profile'] });
+                  router.push('/');
+                  router.refresh();
+                }}
+              >
+                <LogOut size={15} /> Log out
+              </button>
+            </>
+          ) : (
+            <>
+              <Link href="/login" className="nav-login" onClick={() => setOpen(false)}>Log in</Link>
+              <Link href="/register" className="button button-small" onClick={() => setOpen(false)}>Join Fixly <ArrowUpRight size={15} /></Link>
+            </>
+          )}
         </nav>
       </header>
       <main>{children}</main>

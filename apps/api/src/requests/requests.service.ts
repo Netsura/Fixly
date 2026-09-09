@@ -17,7 +17,7 @@ export class RequestsService {
       data: {
         customerId,
         serviceId: input.serviceId,
-        status: RequestStatus.PUBLISHED,
+        status: input.asDraft ? RequestStatus.DRAFT : RequestStatus.PUBLISHED,
         title: input.title.trim(),
         description: input.description.trim(),
         locationHash: input.locationHash.trim(),
@@ -32,7 +32,8 @@ export class RequestsService {
 
   async list(user: AuthenticatedUser, page = 1, limit = 20, search?: string) {
     const boundedLimit = Math.min(Math.max(limit, 1), 50);
-    const textFilter: Prisma.ServiceRequestWhereInput = search ? { OR: [{ title: { contains: search.trim(), mode: 'insensitive' } }, { description: { contains: search.trim(), mode: 'insensitive' } }, { locationHash: { contains: search.trim(), mode: 'insensitive' } }] } : {};
+    const term = search?.trim();
+    const textFilter: Prisma.ServiceRequestWhereInput = term ? { OR: [{ title: { contains: term, mode: 'insensitive' } }, { description: { contains: term, mode: 'insensitive' } }, { locationHash: { contains: term, mode: 'insensitive' } }, { service: { OR: [{ name: { contains: term, mode: 'insensitive' } }, { slug: { contains: term.toLowerCase(), mode: 'insensitive' } }] } }] } : {};
     const where: Prisma.ServiceRequestWhereInput = user.role === UserRole.PROVIDER
       ? { ...textFilter, status: { in: [RequestStatus.PUBLISHED, RequestStatus.OFFER_RECEIVED] }, offers: { none: { providerId: user.id } } }
       : { ...textFilter, customerId: user.id };
@@ -56,7 +57,18 @@ export class RequestsService {
         service: true,
         customer: { select: { id: true, role: true, profile: { select: { displayName: true, ratingAverage: true, ratingCount: true } } } },
         offers: { include: { provider: { select: { id: true, email: true, role: true, profile: true } } } },
-        booking: { select: { id: true, providerId: true, customerId: true, conversation: { select: { id: true } } } },
+        booking: {
+          select: {
+            id: true,
+            status: true,
+            scheduledAt: true,
+            providerId: true,
+            customerId: true,
+            conversation: { select: { id: true } },
+            review: { select: { id: true, rating: true } },
+            payments: { select: { id: true, status: true }, orderBy: { createdAt: 'desc' }, take: 1 },
+          },
+        },
         attachments: true,
       },
     });
@@ -112,6 +124,21 @@ export class RequestsService {
       throw new ConflictException('Request cannot be cancelled in its current state');
     }
     return prisma.serviceRequest.update({ where: { id }, data: { status: RequestStatus.CANCELLED } });
+  }
+
+  async publish(customerId: string, id: string) {
+    const request = await prisma.serviceRequest.findUnique({ where: { id } });
+    if (!request || request.customerId !== customerId) {
+      throw new NotFoundException('Request not found');
+    }
+    if (request.status !== RequestStatus.DRAFT) {
+      throw new ConflictException('Only draft requests can be published');
+    }
+    return prisma.serviceRequest.update({
+      where: { id },
+      data: { status: RequestStatus.PUBLISHED },
+      include: { service: true, attachments: true },
+    });
   }
 
   private validateWindow(start: string, end: string, min?: number, max?: number) {

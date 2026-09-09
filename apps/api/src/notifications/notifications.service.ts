@@ -8,6 +8,6 @@ export class NotificationsService {
   }
 
   markRead(userId: string, notificationId: string) {
-    return prisma.notification.updateMany({ where: { id: notificationId, userId, readAt: null }, data: { readAt: new Date() } });
+    return prisma.notification.updateMany({ where: { id: notificationId, userId, readAt: null }, data: { readAt: new Date() } }).then(() => ({ success: true }));
   }
 }

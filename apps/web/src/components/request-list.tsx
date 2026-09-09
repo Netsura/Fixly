@@ -14,10 +14,10 @@ const statusLabels: Record<string, string> = {
   CANCELLED: 'Cancelled',
 };
 
-export function RequestList() {
+export function RequestList({ search = '' }: { search?: string }) {
   const { data, isLoading, isError } = useQuery({
-    queryKey: ['requests'],
-    queryFn: () => apiFetch<{ items: ServiceRequest[]; total: number }>('/requests'),
+    queryKey: ['requests', search],
+    queryFn: () => apiFetch<{ items: ServiceRequest[]; total: number }>(`/requests${search ? `?search=${encodeURIComponent(search)}` : ''}`),
   });
 
   if (isLoading) return <div className="status-panel"><LoaderCircle className="spin" size={20} /> Loading your requests...</div>;

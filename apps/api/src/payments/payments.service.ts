@@ -114,7 +114,47 @@ export class PaymentsService {
       if (!payment || payment.status === PaymentStatus.SUCCEEDED) return;
       await transaction.payment.update({ where: { id: payment.id }, data: { status: PaymentStatus.SUCCEEDED } });
       await transaction.booking.updateMany({ where: { id: bookingId, status: BookingStatus.PAYMENT_PENDING }, data: { status: BookingStatus.PAID } });
-      await transaction.serviceRequest.updateMany({ where: { booking: { id: bookingId }, status: RequestStatus.PROVIDER_SELECTED }, data: { status: RequestStatus.PAID } });
+      await transaction.serviceRequest.updateMany({
+        where: { booking: { id: bookingId }, status: { in: [RequestStatus.PROVIDER_SELECTED, RequestStatus.PAYMENT_PENDING] } },
+        data: { status: RequestStatus.PAID },
+      });
+    });
+  }
+
+  async confirmDevPayment(customerId: string, bookingId: string) {
+    if (this.stripe || env.NODE_ENV === 'production') {
+      throw new ServiceUnavailableException('Development payment confirmation is unavailable');
+    }
+    const booking = await prisma.booking.findUnique({
+      where: { id: bookingId },
+      include: { offer: true },
+    });
+    if (!booking || booking.customerId !== customerId) {
+      throw new NotFoundException('Booking not found');
+    }
+    if (booking.status !== BookingStatus.PAYMENT_PENDING) {
+      throw new ConflictException('Booking is not awaiting payment');
+    }
+
+    return prisma.$transaction(async (transaction) => {
+      const payment = await transaction.payment.upsert({
+        where: { idempotencyKey: `dev-${bookingId}` },
+        create: {
+          bookingId,
+          stripePaymentIntentId: `dev_pi_${bookingId}`,
+          amountCents: booking.offer.priceCents,
+          currency: 'usd',
+          idempotencyKey: `dev-${bookingId}`,
+          status: PaymentStatus.SUCCEEDED,
+        },
+        update: { status: PaymentStatus.SUCCEEDED },
+      });
+      await transaction.booking.update({ where: { id: bookingId }, data: { status: BookingStatus.PAID } });
+      await transaction.serviceRequest.update({
+        where: { id: booking.requestId },
+        data: { status: RequestStatus.PAID },
+      });
+      return payment;
     });
   }
 

@@ -9,6 +9,12 @@ type MessageEmailJob = {
   recipientIds: string[];
 };
 
+type TransactionalEmailJob = {
+  to: string;
+  subject: string;
+  text: string;
+};
+
 type NotificationJob = {
   userId: string;
   type: string;
@@ -26,12 +32,19 @@ class EmailProvider {
 
 const connection = new IORedis(env.REDIS_URL, { maxRetriesPerRequest: null });
 const emailProvider = new EmailProvider();
-const emailWorker = new Worker<MessageEmailJob>('email', async (job: Job<MessageEmailJob>) => {
-  const recipients = await prisma.user.findMany({ where: { id: { in: job.data.recipientIds } }, select: { email: true } });
-  const message = await prisma.message.findUnique({ where: { id: job.data.messageId }, select: { body: true } });
+const emailWorker = new Worker('email', async (job: Job) => {
+  if (job.name === 'transactional-email') {
+    const data = job.data as TransactionalEmailJob;
+    await emailProvider.send([data.to], data.subject, { text: data.text });
+    return;
+  }
+
+  const data = job.data as MessageEmailJob;
+  const recipients = await prisma.user.findMany({ where: { id: { in: data.recipientIds } }, select: { email: true } });
+  const message = await prisma.message.findUnique({ where: { id: data.messageId }, select: { body: true } });
   if (!recipients.length || !message) return;
   await emailProvider.send(recipients.map((recipient) => recipient.email), 'New Fixly message', {
-    conversationId: job.data.conversationId,
+    conversationId: data.conversationId,
     preview: message.body.slice(0, 160),
   });
 }, { connection: connection.duplicate(), concurrency: 10 });
@@ -42,8 +55,12 @@ const notificationWorker = new Worker<NotificationJob>('notifications', async (j
 
 const cleanupQueue = new Queue('cleanup', { connection });
 const cleanupWorker = new Worker('cleanup', async () => {
-  const result = await prisma.authSession.deleteMany({ where: { expiresAt: { lt: new Date() } } });
-  console.log(JSON.stringify({ event: 'cleanup.expired_sessions', deleted: result.count }));
+  const cutoff = new Date();
+  const [sessions, tokens] = await prisma.$transaction([
+    prisma.authSession.deleteMany({ where: { expiresAt: { lt: cutoff } } }),
+    prisma.authToken.deleteMany({ where: { OR: [{ expiresAt: { lt: cutoff } }, { usedAt: { not: null } }] } }),
+  ]);
+  console.log(JSON.stringify({ event: 'cleanup.expired_auth', sessions: sessions.count, tokens: tokens.count }));
 }, { connection: connection.duplicate(), concurrency: 1 });
 
 void cleanupQueue.add('expired-auth-sessions', {}, {

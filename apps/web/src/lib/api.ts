@@ -12,12 +12,15 @@ export type ServiceRequest = {
   status: string;
   title: string;
   description: string;
+  locationHash?: string;
   preferredStart: string;
   preferredEnd: string;
   budgetMinCents: number | null;
   budgetMaxCents: number | null;
   service: Service;
   offers?: Offer[];
+  customer?: { id: string; profile: { displayName: string } | null };
+  booking?: BookingSummary | null;
 };
 
 export type Offer = {
@@ -34,10 +37,34 @@ export type Offer = {
   };
 };
 
+export type BookingSummary = {
+  id: string;
+  status: string;
+  scheduledAt?: string | null;
+  providerId?: string;
+  customerId?: string;
+  conversation?: { id: string } | null;
+  review?: { id: string; rating: number } | null;
+  payments?: { id: string; status: string }[];
+  request?: ServiceRequest;
+  offer?: { priceCents: number; message: string };
+  customer?: { id: string; profile: { displayName: string } | null };
+  provider?: { id: string; profile: { displayName: string } | null };
+};
+
+export type NotificationItem = {
+  id: string;
+  type: string;
+  payload: Record<string, unknown>;
+  readAt: string | null;
+  createdAt: string;
+};
+
 export type Profile = {
   id: string;
   email: string;
   role: UserRole;
+  emailVerifiedAt?: string | null;
   profile: { displayName: string; bio: string | null; ratingAverage: string; ratingCount: number } | null;
 };
 
@@ -61,7 +88,10 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}, canRe
     throw new Error(message ?? `Request failed with status ${response.status}`);
   }
 
-  return response.json() as Promise<T>;
+  if (response.status === 204) return undefined as T;
+  const text = await response.text();
+  if (!text) return undefined as T;
+  return JSON.parse(text) as T;
 }
 
 export async function apiUpload<T>(path: string, body: FormData): Promise<T> {
@@ -77,4 +107,9 @@ export async function apiUpload<T>(path: string, body: FormData): Promise<T> {
 export function formatMoney(cents: number | null | undefined) {
   if (cents === null || cents === undefined) return 'Flexible budget';
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100);
+}
+
+export function newIdempotencyKey() {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID();
+  return `idem-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }

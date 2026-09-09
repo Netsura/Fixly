@@ -11,6 +11,11 @@ export class ServicesController {
     return this.servicesService.list(query);
   }
 
+  @Get('slug/:slug')
+  findBySlug(@Param('slug') slug: string) {
+    return this.servicesService.findBySlug(slug);
+  }
+
   @Get(':id')
   findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.servicesService.findOne(id);

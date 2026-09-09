@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { prisma, Prisma, UserRole } from '@fixly/database';
+import { prisma, Prisma } from '@fixly/database';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 
 @Injectable()
@@ -39,7 +39,7 @@ export class UsersService {
 
   async getPublicProfile(userId: string) {
     const user = await prisma.user.findUnique({
-      where: { id: userId, role: UserRole.PROVIDER, suspendedAt: null },
+      where: { id: userId, suspendedAt: null },
       select: {
         id: true,
         role: true,

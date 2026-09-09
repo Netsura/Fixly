@@ -1,4 +1,4 @@
-import { IsDateString, IsInt, IsOptional, IsString, IsUUID, MaxLength, Min } from 'class-validator';
+import { IsBoolean, IsDateString, IsInt, IsOptional, IsString, IsUUID, MaxLength, Min } from 'class-validator';
 
 export class CreateRequestDto {
   @IsUUID()
@@ -31,4 +31,8 @@ export class CreateRequestDto {
   @IsInt()
   @Min(0)
   budgetMaxCents?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  asDraft?: boolean;
 }

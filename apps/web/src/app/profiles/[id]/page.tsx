@@ -90,7 +90,7 @@ export default function PublicProfilePage() {
             <div className="section-label"><span>Services</span><span>{profile.data.services.length}</span></div>
             <div className="public-service-list">
               {profile.data.services.map((service) => (
-                <Link className="public-service-row" href={`/services/${service.id}`} key={service.id}>
+                <Link className="public-service-row" href={`/services/${service.slug}`} key={service.id}>
                   <span className="avatar"><Wrench size={15} /></span>
                   <span>
                     <strong>{service.name}</strong>
@@ -108,7 +108,7 @@ export default function PublicProfilePage() {
             <div className="section-label"><span>Recent requests</span><span>{profile.data.requests.length}</span></div>
             <div className="public-request-list">
               {profile.data.requests.map((request) => (
-                <Link className="public-request-row" href={`/services/${request.service.id}`} key={request.id}>
+                <Link className="public-request-row" href={`/services/${request.service.slug}`} key={request.id}>
                   <span>
                     <strong>{request.title}</strong>
                     <small>{request.service.name} · {request.status.replaceAll('_', ' ').toLowerCase()}</small>

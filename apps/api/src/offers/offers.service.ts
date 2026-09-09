@@ -1,5 +1,5 @@
 import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { OfferStatus, prisma, RequestStatus, UserRole } from '@fixly/database';
+import { BookingStatus, OfferStatus, prisma, RequestStatus, UserRole } from '@fixly/database';
 import { CreateOfferDto } from './dto/create-offer.dto';
 
 @Injectable()
@@ -88,7 +88,12 @@ export class OffersService {
             offerId: offer.id,
             customerId,
             providerId: offer.providerId,
+            status: BookingStatus.PAYMENT_PENDING,
           },
+        });
+        await transaction.serviceRequest.update({
+          where: { id: offer.requestId },
+          data: { status: RequestStatus.PAYMENT_PENDING },
         });
         await transaction.conversation.create({
           data: {

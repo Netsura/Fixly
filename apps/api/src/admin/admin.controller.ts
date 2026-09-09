@@ -30,18 +30,27 @@ export class AdminController {
     return this.adminService.listUsers(page, limit, search);
   }
 
+  @Get('audit-logs')
+  auditLogs(@Query('page', new ParseIntPipe({ optional: true })) page = 1, @Query('limit', new ParseIntPipe({ optional: true })) limit = 50) {
+    return this.adminService.listAuditLogs(page, limit);
+  }
+
   @Patch('users/:id/suspension')
-  suspend(@Param('id', ParseUUIDPipe) id: string, @Query('suspended', ParseBoolPipe) suspended: boolean) {
-    return this.adminService.suspendUser(id, suspended);
+  suspend(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query('suspended', ParseBoolPipe) suspended: boolean,
+  ) {
+    return this.adminService.suspendUser(user.id, id, suspended);
   }
 
   @Post('services')
-  createService(@Body() input: CreateServiceDto) {
-    return this.adminService.createService(input);
+  createService(@CurrentUser() user: AuthenticatedUser, @Body() input: CreateServiceDto) {
+    return this.adminService.createService(user.id, input);
   }
 
   @Patch('services/:id')
-  updateService(@Param('id', ParseUUIDPipe) id: string, @Body() input: UpdateServiceDto) {
-    return this.adminService.updateService(id, input);
+  updateService(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string, @Body() input: UpdateServiceDto) {
+    return this.adminService.updateService(user.id, id, input);
   }
 }

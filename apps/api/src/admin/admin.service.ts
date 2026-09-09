@@ -40,30 +40,63 @@ export class AdminService {
     return { items, page, limit: boundedLimit, total };
   }
 
-  async suspendUser(userId: string, suspended: boolean) {
+  async suspendUser(actorId: string, userId: string, suspended: boolean) {
     const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, role: true } });
     if (!user) throw new NotFoundException('User not found');
     if (user.role === UserRole.ADMIN) throw new ConflictException('Admin accounts cannot be suspended here');
-    return prisma.user.update({ where: { id: userId }, data: { suspendedAt: suspended ? new Date() : null }, select: { id: true, email: true, role: true, suspendedAt: true } });
+    const updated = await prisma.user.update({
+      where: { id: userId },
+      data: { suspendedAt: suspended ? new Date() : null },
+      select: { id: true, email: true, role: true, suspendedAt: true },
+    });
+    await this.audit(actorId, suspended ? 'user.suspend' : 'user.unsuspend', 'User', userId, { email: updated.email });
+    return updated;
   }
 
-  async createService(input: CreateServiceDto) {
+  async createService(actorId: string, input: CreateServiceDto) {
     const category = await prisma.serviceCategory.findUnique({ where: { id: input.categoryId } });
     if (!category) throw new NotFoundException('Service category not found');
     try {
-      return await prisma.service.create({ data: { categoryId: input.categoryId, name: input.name.trim(), slug: input.slug.trim().toLowerCase() }, include: { category: true } });
+      const service = await prisma.service.create({
+        data: { categoryId: input.categoryId, name: input.name.trim(), slug: input.slug.trim().toLowerCase() },
+        include: { category: true },
+      });
+      await this.audit(actorId, 'service.create', 'Service', service.id, { slug: service.slug });
+      return service;
     } catch (error) {
       if (error instanceof Error && error.message.includes('Unique constraint')) throw new ConflictException('Service slug already exists');
       throw error;
     }
   }
 
-  async updateService(id: string, input: UpdateServiceDto) {
+  async updateService(actorId: string, id: string, input: UpdateServiceDto) {
     try {
-      return await prisma.service.update({ where: { id }, data: input, include: { category: true } });
+      const service = await prisma.service.update({ where: { id }, data: input, include: { category: true } });
+      await this.audit(actorId, 'service.update', 'Service', id, { ...input } as Prisma.InputJsonValue);
+      return service;
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') throw new NotFoundException('Service not found');
       throw error;
     }
+  }
+
+  async listAuditLogs(page = 1, limit = 50) {
+    const boundedLimit = Math.min(Math.max(limit, 1), 100);
+    const [items, total] = await prisma.$transaction([
+      prisma.auditLog.findMany({
+        include: { actor: { select: { id: true, email: true } } },
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * boundedLimit,
+        take: boundedLimit,
+      }),
+      prisma.auditLog.count(),
+    ]);
+    return { items, page, limit: boundedLimit, total };
+  }
+
+  private audit(actorId: string, action: string, entityType: string, entityId: string, metadata?: Prisma.InputJsonValue) {
+    return prisma.auditLog.create({
+      data: { actorId, action, entityType, entityId, metadata },
+    });
   }
 }

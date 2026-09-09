@@ -31,6 +31,11 @@ export class RequestsController {
     return this.requestsService.update(user.id, id, input);
   }
 
+  @Post(':id/publish')
+  publish(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.requestsService.publish(user.id, id);
+  }
+
   @Delete(':id')
   cancel(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.requestsService.cancel(user.id, id);

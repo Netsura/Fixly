@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { ArrowRight, LoaderCircle } from 'lucide-react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -14,6 +14,7 @@ type FormOutput = z.output<typeof schema>;
 
 export function AuthForm({ mode }: { mode: 'login' | 'register' }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { register, handleSubmit, formState: { errors, isSubmitting }, setError } = useForm<FormInput, unknown, FormOutput>({ resolver: zodResolver(schema), defaultValues: { role: 'CUSTOMER' } });
   const submit = async (values: FormOutput) => {
     try {
@@ -21,7 +22,8 @@ export function AuthForm({ mode }: { mode: 'login' | 'register' }) {
         ? { email: values.email, password: values.password }
         : values;
       await apiFetch(`/auth/${mode}`, { method: 'POST', body: JSON.stringify(payload) });
-      router.push('/dashboard');
+      const next = searchParams.get('next');
+      router.push(next?.startsWith('/') ? next : '/dashboard');
       router.refresh();
     } catch (error) {
       setError('root', { message: error instanceof Error ? error.message : 'Something went wrong' });
@@ -35,6 +37,6 @@ export function AuthForm({ mode }: { mode: 'login' | 'register' }) {
     {mode === 'register' && <label>What brings you here?<select {...register('role')}><option value="CUSTOMER">I need a service</option><option value="PROVIDER">I provide services</option></select></label>}
     {errors.root && <p className="form-error">{errors.root.message}</p>}
     <button className="button button-dark button-wide" disabled={isSubmitting}>{isSubmitting ? <><LoaderCircle className="spin" size={17} /> Working...</> : <>{mode === 'login' ? 'Log in to Fixly' : 'Create your account'} <ArrowRight size={17} /></>}</button>
-    <p className="form-footnote">{mode === 'login' ? <>New to Fixly? <Link href="/register">Create an account</Link></> : <>Already have an account? <Link href="/login">Log in</Link></>}</p>
+    <p className="form-footnote">{mode === 'login' ? <>New to Fixly? <Link href="/register">Create an account</Link> · <Link href="/forgot-password">Forgot password</Link></> : <>Already have an account? <Link href="/login">Log in</Link></>}</p>
   </form>;
 }

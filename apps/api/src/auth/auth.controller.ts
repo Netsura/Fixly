@@ -3,6 +3,9 @@ import type { Request, Response } from 'express';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
+import { VerifyEmailDto } from './dto/verify-email.dto';
 import { ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE } from './auth.constants';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { env } from '@fixly/config';
@@ -47,6 +50,21 @@ export class AuthController {
     response.clearCookie(ACCESS_TOKEN_COOKIE);
     response.clearCookie(REFRESH_TOKEN_COOKIE);
     return { success: true };
+  }
+
+  @Post('verify-email')
+  verifyEmail(@Body() input: VerifyEmailDto) {
+    return this.authService.verifyEmail(input.token);
+  }
+
+  @Post('forgot-password')
+  forgotPassword(@Body() input: ForgotPasswordDto) {
+    return this.authService.requestPasswordReset(input.email);
+  }
+
+  @Post('reset-password')
+  resetPassword(@Body() input: ResetPasswordDto) {
+    return this.authService.resetPassword(input.token, input.password);
   }
 
   private setCookies(response: Response, accessToken: string, refreshToken: string) {

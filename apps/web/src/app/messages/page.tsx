@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, Suspense, useEffect, useMemo, useState } from 'react';
+import { FormEvent, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { CheckCheck, LoaderCircle, MessageSquare, Send, Wifi, WifiOff } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
 import { io, Socket } from 'socket.io-client';
@@ -26,6 +26,7 @@ function MessagesContent() {
   const [draft, setDraft] = useState('');
   const [typing, setTyping] = useState(false);
   const [connected, setConnected] = useState(false);
+  const socketRef = useRef<Socket | null>(null);
   const me = useQuery({ queryKey: ['profile'], queryFn: () => apiFetch<Profile>('/users/me'), retry: false });
   const conversations = useQuery({ queryKey: ['conversations'], queryFn: () => apiFetch<Conversation[]>('/conversations') });
   const active = useMemo(
@@ -39,12 +40,9 @@ function MessagesContent() {
   });
 
   useEffect(() => {
-    if (conversationParam) setActiveId(conversationParam);
-  }, [conversationParam]);
-
-  useEffect(() => {
     if (!active?.id) return;
     const socket: Socket = io(`${apiUrl.replace(/\/api$/, '')}/realtime`, { withCredentials: true });
+    socketRef.current = socket;
     socket.on('connect', () => {
       setConnected(true);
       socket.emit('conversation:join', { conversationId: active.id });
@@ -52,11 +50,12 @@ function MessagesContent() {
     });
     socket.on('disconnect', () => setConnected(false));
     socket.on('message:new', (message: Message) => {
-      if (message.conversationId === active.id) setLiveMessages((current) => [...current, message]);
+      if (message.conversationId === active.id) setLiveMessages((current) => current.some((item) => item.id === message.id) ? current : [...current, message]);
     });
     socket.on('message:typing', (event: { userId: string; isTyping: boolean }) => setTyping(event.isTyping));
     return () => {
       socket.disconnect();
+      socketRef.current = null;
       setConnected(false);
       setLiveMessages([]);
       setTyping(false);
@@ -66,12 +65,14 @@ function MessagesContent() {
   const sendMessage = (event: FormEvent) => {
     event.preventDefault();
     if (!draft.trim() || !active?.id) return;
-    const socket = io(`${apiUrl.replace(/\/api$/, '')}/realtime`, { withCredentials: true });
-    socket.emit('conversation:join', { conversationId: active.id }, () => {
-      socket.emit('message:send', { conversationId: active.id, body: draft });
-      setDraft('');
-      setTimeout(() => socket.disconnect(), 500);
-    });
+    const body = draft.trim();
+    if (socketRef.current?.connected) {
+      socketRef.current.emit('message:send', { conversationId: active.id, body }, (result: { ok: boolean }) => {
+        if (result?.ok) setDraft('');
+      });
+    } else {
+      void apiFetch(`/conversations/${active.id}/messages`, { method: 'POST', body: JSON.stringify({ body }) }).then(() => setDraft(''));
+    }
   };
 
   const otherParticipant = active?.participants.find((participant) => participant.userId !== me.data?.id);
@@ -153,7 +154,8 @@ function MessagesContent() {
               <form className="chat-compose" onSubmit={sendMessage}>
                 <input
                   value={draft}
-                  onChange={(event) => setDraft(event.target.value)}
+                  onChange={(event) => { const value = event.target.value; setDraft(value); if (socketRef.current?.connected && active?.id) socketRef.current.emit('message:typing', { conversationId: active.id, isTyping: value.length > 0 }); }}
+                  onBlur={() => { if (socketRef.current?.connected && active?.id) socketRef.current.emit('message:typing', { conversationId: active.id, isTyping: false }); }}
                   placeholder="Write a message..."
                 />
                 <button className="button button-dark" aria-label="Send message"><Send size={16} /></button>

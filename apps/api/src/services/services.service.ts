@@ -34,4 +34,10 @@ export class ServicesService {
     }
     return service;
   }
+
+  async findBySlug(slug: string) {
+    const service = await prisma.service.findFirst({ where: { slug: slug.toLowerCase(), active: true }, include: { category: true } });
+    if (!service) throw new NotFoundException('Service not found');
+    return service;
+  }
 }

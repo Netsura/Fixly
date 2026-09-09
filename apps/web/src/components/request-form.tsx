@@ -1,8 +1,9 @@
 'use client';
 
 import { ArrowRight, LoaderCircle } from 'lucide-react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useState } from 'react';
+import { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -15,9 +16,16 @@ type FormOutput = z.output<typeof schema>;
 
 export function RequestForm() {
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const [files, setFiles] = useState<File[]>([]);
   const services = useQuery({ queryKey: ['services'], queryFn: () => apiFetch<{ items: Service[] }>('/services') });
+  const profile = useQuery({ queryKey: ['profile'], queryFn: () => apiFetch('/users/me'), retry: false });
+  useEffect(() => {
+    if (profile.isError) {
+      router.replace(`/login?next=${encodeURIComponent(`${pathname}?${searchParams.toString()}`)}`);
+    }
+  }, [pathname, profile.isError, router, searchParams]);
   const { register, handleSubmit, formState: { errors, isSubmitting }, setError } = useForm<FormInput, unknown, FormOutput>({ resolver: zodResolver(schema), defaultValues: { serviceId: searchParams.get('service') ?? '' } });
   const submit = async (values: FormOutput) => {
     try {
@@ -31,8 +39,9 @@ export function RequestForm() {
     } catch (error) { setError('root', { message: error instanceof Error ? error.message : 'Could not create request' }); }
   };
 
+  if (profile.isLoading || profile.isError) return <div className="status-panel"><LoaderCircle className="spin" size={20} /> {profile.isError ? 'Taking you to login...' : 'Checking your account...'}</div>;
   return <form className="request-form" onSubmit={handleSubmit(submit)}>
-    <label>Service<select {...register('serviceId')}><option value="">Choose a service</option>{services.data?.items.map((service) => <option value={service.id} key={service.id}>{service.name}</option>)}</select>{errors.serviceId && <em>{errors.serviceId.message}</em>}</label>
+    <label>Request type<select {...register('serviceId')}><option value="">Choose a request type</option>{services.data?.items.map((service) => <option value={service.id} key={service.id}>{service.name} · {service.category.name}</option>)}</select>{errors.serviceId && <em>{errors.serviceId.message}</em>}</label>
     <label>What do you need help with?<input {...register('title')} placeholder="e.g. Kitchen sink is leaking" />{errors.title && <em>{errors.title.message}</em>}</label>
     <label>Describe the job<textarea {...register('description')} placeholder="Tell providers what is happening, what you have tried, and anything useful to know." rows={5} />{errors.description && <em>{errors.description.message}</em>}</label>
     <label>Photos <input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={(event) => setFiles(Array.from(event.target.files ?? []).slice(0, 3))} /><small className="field-help">Up to 3 JPG, PNG, or WebP images, 5MB each.</small></label>

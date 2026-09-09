@@ -17,6 +17,12 @@ export class PaymentsController {
     return this.paymentsService.createPaymentIntent(user.id, input.bookingId, idempotencyKey);
   }
 
+  @Post('dev-confirm')
+  @UseGuards(JwtAuthGuard)
+  confirmDev(@CurrentUser() user: AuthenticatedUser, @Body() input: CreatePaymentDto) {
+    return this.paymentsService.confirmDevPayment(user.id, input.bookingId);
+  }
+
   @Get(':id')
   @UseGuards(JwtAuthGuard)
   get(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
