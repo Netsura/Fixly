@@ -74,22 +74,82 @@ export type Profile = {
 
 export const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api';
 
-export async function apiFetch<T>(path: string, options: RequestInit = {}, canRefresh = true): Promise<T> {
+const CSRF_COOKIE = 'fixly_csrf';
+const CSRF_HEADER = 'x-csrf-token';
+const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+
+let csrfToken: string | null = null;
+
+export function setCsrfToken(token: string | null | undefined) {
+  csrfToken = token ?? null;
+}
+
+function readCsrfCookie() {
+  if (typeof document === 'undefined') return null;
+  const match = document.cookie.split('; ').find((entry) => entry.startsWith(`${CSRF_COOKIE}=`));
+  return match ? decodeURIComponent(match.slice(CSRF_COOKIE.length + 1)) : null;
+}
+
+function csrfHeaders(method: string): Record<string, string> {
+  if (SAFE_METHODS.has(method.toUpperCase())) return {};
+  const token = readCsrfCookie() ?? csrfToken;
+  return token ? { [CSRF_HEADER]: token } : {};
+}
+
+/** Re-mints the CSRF token for the current session without rotating it. */
+async function renewCsrfToken() {
+  const response = await fetch(`${apiUrl}/auth/csrf`, { credentials: 'include' });
+  if (!response.ok) return false;
+  const payload = await response.json().catch(() => null) as { csrfToken?: string } | null;
+  setCsrfToken(payload?.csrfToken);
+  return Boolean(payload?.csrfToken);
+}
+
+/** Mints a fresh session + CSRF pair; used when the access token has expired. */
+async function refreshSession() {
+  const response = await fetch(`${apiUrl}/auth/refresh`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: csrfHeaders('POST'),
+  });
+  if (!response.ok) return false;
+  const payload = await response.json().catch(() => null) as { csrfToken?: string } | null;
+  setCsrfToken(payload?.csrfToken);
+  return true;
+}
+
+/**
+ * A 403 usually means a stale CSRF token, a 401 an expired access token. Try
+ * the cheaper CSRF renewal first and fall back to rotating the session.
+ */
+async function recoverSession(status: number) {
+  if (status === 403 && (await renewCsrfToken())) return true;
+  return refreshSession();
+}
+
+async function readError(response: Response, fallback: string) {
+  const payload = await response.json().catch(() => null) as { message?: string | string[] } | null;
+  const message = Array.isArray(payload?.message) ? payload.message.join(', ') : payload?.message;
+  return new Error(message ?? fallback);
+}
+
+export async function apiFetch<T>(path: string, options: RequestInit = {}, canRetry = true): Promise<T> {
+  const method = options.method ?? 'GET';
   const response = await fetch(`${apiUrl}${path}`, {
     ...options,
     credentials: 'include',
-    headers: { 'content-type': 'application/json', ...options.headers },
+    headers: { 'content-type': 'application/json', ...csrfHeaders(method), ...options.headers },
   });
 
-  if (response.status === 401 && canRefresh && !path.startsWith('/auth/')) {
-    const refresh = await fetch(`${apiUrl}/auth/refresh`, { method: 'POST', credentials: 'include' });
-    if (refresh.ok) return apiFetch<T>(path, options, false);
+  // An expired access token or a stale CSRF token are both fixed by rotating
+  // the session once and replaying the request.
+  const recoverable = response.status === 401 || response.status === 403;
+  if (recoverable && canRetry && !path.startsWith('/auth/')) {
+    if (await recoverSession(response.status)) return apiFetch<T>(path, options, false);
   }
 
   if (!response.ok) {
-    const payload = await response.json().catch(() => null) as { message?: string | string[] } | null;
-    const message = Array.isArray(payload?.message) ? payload.message.join(', ') : payload?.message;
-    throw new Error(message ?? `Request failed with status ${response.status}`);
+    throw await readError(response, `Request failed with status ${response.status}`);
   }
 
   if (response.status === 204) return undefined as T;
@@ -98,12 +158,19 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}, canRe
   return JSON.parse(text) as T;
 }
 
-export async function apiUpload<T>(path: string, body: FormData): Promise<T> {
-  const response = await fetch(`${apiUrl}${path}`, { method: 'POST', body, credentials: 'include' });
+export async function apiUpload<T>(path: string, body: FormData, canRetry = true): Promise<T> {
+  const response = await fetch(`${apiUrl}${path}`, {
+    method: 'POST',
+    body,
+    credentials: 'include',
+    headers: csrfHeaders('POST'),
+  });
+
+  if ((response.status === 401 || response.status === 403) && canRetry) {
+    if (await recoverSession(response.status)) return apiUpload<T>(path, body, false);
+  }
   if (!response.ok) {
-    const payload = await response.json().catch(() => null) as { message?: string | string[] } | null;
-    const message = Array.isArray(payload?.message) ? payload.message.join(', ') : payload?.message;
-    throw new Error(message ?? `Upload failed with status ${response.status}`);
+    throw await readError(response, `Upload failed with status ${response.status}`);
   }
   return response.json() as Promise<T>;
 }

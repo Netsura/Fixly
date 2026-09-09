@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ArrowUpRight, Bell, BriefcaseBusiness, ClipboardList, Compass, Hammer, LogOut, Menu, MessageSquare, UserRound, X } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { apiFetch, Profile } from '../lib/api';
+import { apiFetch, Profile, setCsrfToken } from '../lib/api';
 import { useState } from 'react';
 import { PresenceProvider } from './presence';
 
@@ -50,6 +50,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   className="nav-logout"
                   onClick={async () => {
                     await apiFetch('/auth/logout', { method: 'POST' });
+                    setCsrfToken(null);
                     queryClient.removeQueries({ queryKey: ['profile'] });
                     router.push('/');
                     router.refresh();

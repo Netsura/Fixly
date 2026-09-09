@@ -19,6 +19,7 @@ import { StorageModule } from './storage/storage.module';
 import { UsersModule } from './users/users.module';
 import { OriginCheckMiddleware } from './common/origin-check.middleware';
 import { RateLimitGuard } from './common/rate-limit.guard';
+import { CsrfGuard } from './common/csrf.guard';
 
 @Module({
   imports: [
@@ -42,6 +43,7 @@ import { RateLimitGuard } from './common/rate-limit.guard';
   providers: [
     AppService,
     { provide: APP_GUARD, useClass: RateLimitGuard },
+    { provide: APP_GUARD, useClass: CsrfGuard },
   ],
 })
 export class AppModule implements NestModule {

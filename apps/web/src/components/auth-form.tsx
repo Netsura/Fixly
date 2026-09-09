@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { apiFetch } from '../lib/api';
+import { apiFetch, setCsrfToken } from '../lib/api';
 
 const schema = z.object({ email: z.string().email('Enter a valid email'), password: z.string().min(12, 'Use at least 12 characters'), displayName: z.string().min(2, 'Enter your name').optional(), role: z.enum(['CUSTOMER', 'PROVIDER']).default('CUSTOMER') });
 type FormInput = z.input<typeof schema>;
@@ -21,7 +21,8 @@ export function AuthForm({ mode }: { mode: 'login' | 'register' }) {
       const payload = mode === 'login'
         ? { email: values.email, password: values.password }
         : values;
-      await apiFetch(`/auth/${mode}`, { method: 'POST', body: JSON.stringify(payload) });
+      const session = await apiFetch<{ csrfToken?: string }>(`/auth/${mode}`, { method: 'POST', body: JSON.stringify(payload) });
+      setCsrfToken(session?.csrfToken);
       const next = searchParams.get('next');
       router.push(next?.startsWith('/') ? next : '/dashboard');
       router.refresh();

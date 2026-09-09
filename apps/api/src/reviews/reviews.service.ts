@@ -1,5 +1,5 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { BookingStatus, Prisma, prisma, RequestStatus } from '@fixly/database';
+import { BookingStatus, Prisma, prisma, RequestStatus, requestSourcesFor } from '@fixly/database';
 import { CreateReviewDto } from './dto/create-review.dto';
 
 @Injectable()
@@ -37,8 +37,8 @@ export class ReviewsService {
         },
       });
 
-      await transaction.serviceRequest.update({
-        where: { id: booking.requestId },
+      await transaction.serviceRequest.updateMany({
+        where: { id: booking.requestId, status: { in: requestSourcesFor(RequestStatus.REVIEWED) } },
         data: { status: RequestStatus.REVIEWED },
       });
 

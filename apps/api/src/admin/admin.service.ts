@@ -2,6 +2,8 @@ import { ConflictException, Injectable, NotFoundException } from '@nestjs/common
 import { PaymentStatus, Prisma, prisma, UserRole } from '@fixly/database';
 import { CreateServiceDto } from './dto/create-service.dto';
 import { UpdateServiceDto } from './dto/update-service.dto';
+import { isUniqueConstraintError } from '../common/prisma-errors';
+import { writeAudit } from '../common/audit';
 
 @Injectable()
 export class AdminService {
@@ -41,41 +43,62 @@ export class AdminService {
   }
 
   async suspendUser(actorId: string, userId: string, suspended: boolean) {
-    const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, role: true } });
-    if (!user) throw new NotFoundException('User not found');
-    if (user.role === UserRole.ADMIN) throw new ConflictException('Admin accounts cannot be suspended here');
-    const updated = await prisma.user.update({
-      where: { id: userId },
-      data: { suspendedAt: suspended ? new Date() : null },
-      select: { id: true, email: true, role: true, suspendedAt: true },
+    return prisma.$transaction(async (transaction) => {
+      const user = await transaction.user.findUnique({ where: { id: userId }, select: { id: true, role: true } });
+      if (!user) throw new NotFoundException('User not found');
+      if (user.role === UserRole.ADMIN) throw new ConflictException('Admin accounts cannot be suspended here');
+
+      const updated = await transaction.user.update({
+        where: { id: userId },
+        data: { suspendedAt: suspended ? new Date() : null },
+        select: { id: true, email: true, role: true, suspendedAt: true },
+      });
+
+      // Suspension must also cut existing sessions, otherwise the user keeps
+      // working until their refresh token expires.
+      if (suspended) {
+        await transaction.authSession.updateMany({
+          where: { userId, revokedAt: null },
+          data: { revokedAt: new Date() },
+        });
+      }
+
+      await this.audit(transaction, actorId, suspended ? 'user.suspend' : 'user.unsuspend', 'User', userId, {
+        email: updated.email,
+      });
+      return updated;
     });
-    await this.audit(actorId, suspended ? 'user.suspend' : 'user.unsuspend', 'User', userId, { email: updated.email });
-    return updated;
   }
 
   async createService(actorId: string, input: CreateServiceDto) {
-    const category = await prisma.serviceCategory.findUnique({ where: { id: input.categoryId } });
-    if (!category) throw new NotFoundException('Service category not found');
     try {
-      const service = await prisma.service.create({
-        data: { categoryId: input.categoryId, name: input.name.trim(), slug: input.slug.trim().toLowerCase() },
-        include: { category: true },
+      return await prisma.$transaction(async (transaction) => {
+        const category = await transaction.serviceCategory.findUnique({ where: { id: input.categoryId } });
+        if (!category) throw new NotFoundException('Service category not found');
+
+        const service = await transaction.service.create({
+          data: { categoryId: input.categoryId, name: input.name.trim(), slug: input.slug.trim().toLowerCase() },
+          include: { category: true },
+        });
+        await this.audit(transaction, actorId, 'service.create', 'Service', service.id, { slug: service.slug });
+        return service;
       });
-      await this.audit(actorId, 'service.create', 'Service', service.id, { slug: service.slug });
-      return service;
     } catch (error) {
-      if (error instanceof Error && error.message.includes('Unique constraint')) throw new ConflictException('Service slug already exists');
+      if (isUniqueConstraintError(error)) throw new ConflictException('Service slug already exists');
       throw error;
     }
   }
 
   async updateService(actorId: string, id: string, input: UpdateServiceDto) {
     try {
-      const service = await prisma.service.update({ where: { id }, data: input, include: { category: true } });
-      await this.audit(actorId, 'service.update', 'Service', id, { ...input } as Prisma.InputJsonValue);
-      return service;
+      return await prisma.$transaction(async (transaction) => {
+        const service = await transaction.service.update({ where: { id }, data: input, include: { category: true } });
+        await this.audit(transaction, actorId, 'service.update', 'Service', id, { ...input });
+        return service;
+      });
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') throw new NotFoundException('Service not found');
+      if (isUniqueConstraintError(error)) throw new ConflictException('Service slug already exists');
       throw error;
     }
   }
@@ -94,9 +117,14 @@ export class AdminService {
     return { items, page, limit: boundedLimit, total };
   }
 
-  private audit(actorId: string, action: string, entityType: string, entityId: string, metadata?: Prisma.InputJsonValue) {
-    return prisma.auditLog.create({
-      data: { actorId, action, entityType, entityId, metadata },
-    });
+  private audit(
+    transaction: Prisma.TransactionClient,
+    actorId: string,
+    action: string,
+    entityType: string,
+    entityId: string,
+    metadata?: Record<string, unknown>,
+  ) {
+    return writeAudit(transaction, { actorId, action, entityType, entityId, metadata });
   }
 }

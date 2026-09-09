@@ -22,12 +22,28 @@ export class JwtAuthGuard implements CanActivate {
       const payload = await this.jwtService.verifyAsync<AuthTokenPayload>(token, {
         secret: env.JWT_ACCESS_SECRET,
       });
-      const user = await prisma.user.findUnique({
-        where: { id: payload.sub },
-        select: { id: true, email: true, role: true, suspendedAt: true },
+
+      // The session is checked, not just the user: logging out, resetting a
+      // password, or suspending an account revokes sessions, and that has to
+      // take effect immediately rather than when the access token expires.
+      const session = await prisma.authSession.findUnique({
+        where: { id: payload.sessionId },
+        select: {
+          revokedAt: true,
+          expiresAt: true,
+          user: { select: { id: true, email: true, role: true, suspendedAt: true } },
+        },
       });
 
-      if (!user || user.suspendedAt || user.role !== payload.role) {
+      const user = session?.user;
+      if (
+        !session ||
+        session.revokedAt ||
+        session.expiresAt <= new Date() ||
+        !user ||
+        user.suspendedAt ||
+        user.role !== payload.role
+      ) {
         throw new UnauthorizedException('Invalid authentication');
       }
 

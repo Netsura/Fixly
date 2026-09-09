@@ -6,17 +6,22 @@
     "dev": "tsx watch src/main.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/main.js",
+    "test:integration": "jest",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
     "@fixly/config": "workspace:*",
     "@fixly/database": "workspace:*",
     "bullmq": "^5.58.5",
-    "ioredis": "^5.7.0"
+    "ioredis": "^5.7.0",
+    "stripe": "^22.6.1"
   },
   "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "@types/node": "^24.0.0",
+    "jest": "^30.5.1",
+    "ts-jest": "^29.4.12",
     "tsx": "^4.20.5",
-    "typescript": "^5.9.3",
-    "@types/node": "^24.0.0"
+    "typescript": "^5.9.3"
   }
 }

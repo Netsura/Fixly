@@ -1,6 +1,7 @@
 import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { BookingStatus, OfferStatus, prisma, RequestStatus, UserRole } from '@fixly/database';
+import { BookingStatus, OfferStatus, prisma, RequestStatus, requestSourcesFor, UserRole } from '@fixly/database';
 import { CreateOfferDto } from './dto/create-offer.dto';
+import { isUniqueConstraintError } from '../common/prisma-errors';
 
 @Injectable()
 export class OffersService {
@@ -57,14 +58,16 @@ export class OffersService {
           },
           include: { provider: { select: { id: true, email: true, role: true, profile: true } } },
         });
-        await transaction.serviceRequest.update({
-          where: { id: requestId },
+        // No-op once the request is already past PUBLISHED, which is what a
+        // second offer on the same request should do.
+        await transaction.serviceRequest.updateMany({
+          where: { id: requestId, status: { in: requestSourcesFor(RequestStatus.OFFER_RECEIVED) } },
           data: { status: RequestStatus.OFFER_RECEIVED },
         });
         return offer;
       });
     } catch (error) {
-      if (error instanceof Error && error.message.includes('Unique constraint')) {
+      if (isUniqueConstraintError(error)) {
         throw new ConflictException('Provider already submitted an offer for this request');
       }
       throw error;
@@ -107,10 +110,13 @@ export class OffersService {
             status: BookingStatus.PAYMENT_PENDING,
           },
         });
-        await transaction.serviceRequest.update({
-          where: { id: offer.requestId },
+        const awaitingPayment = await transaction.serviceRequest.updateMany({
+          where: { id: offer.requestId, status: { in: requestSourcesFor(RequestStatus.PAYMENT_PENDING) } },
           data: { status: RequestStatus.PAYMENT_PENDING },
         });
+        if (awaitingPayment.count !== 1) {
+          throw new ConflictException('Request state changed concurrently');
+        }
         await transaction.conversation.create({
           data: {
             bookingId: booking.id,

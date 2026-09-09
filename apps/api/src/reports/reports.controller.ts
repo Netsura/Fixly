@@ -26,7 +26,7 @@ export class ReportsController {
 
   @Patch(':id/resolve')
   @Roles(UserRole.ADMIN)
-  resolve(@Param('id', ParseUUIDPipe) id: string) {
-    return this.reportsService.resolve(id);
+  resolve(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.reportsService.resolve(user.id, id);
   }
 }
